@@ -81,7 +81,12 @@ def make_fiber_params(
 ) -> FiberParams:
     """
     Create FiberParams with basic validation.
+
+    @gamma: 1/(W * km)
+    @alpha: 1/km
+    @beta: 1/km
     """
+
     beta = np.asarray(beta, dtype=float)
 
     if beta.shape != (4,):
@@ -100,7 +105,11 @@ def make_wave_params(
 ) -> WaveParams:
     """
     Create WaveParams with basic validation.
+
+    @omega: rad/s
+    P_in: W
     """
+
     omega = np.asarray(omega, dtype=float)
     P_in = np.asarray(P_in, dtype=float)
 
@@ -120,8 +129,7 @@ def make_wave_params(
 
 
 def make_initial_conditions(
-    P_in: np.ndarray,
-    phase: np.ndarray | None = None,
+    P_in: np.ndarray
 ) -> InitialConditions:
     """
     Construct initial complex amplitudes from input powers and phases.
@@ -130,25 +138,17 @@ def make_initial_conditions(
     ----------
     P_in : array_like
         Input powers [W] for the four waves.
-    phase : array_like or None
-        Initial phases [rad]. If None, all phases are set to zero.
 
     Returns
     -------
     InitialConditions
     """
+
     P_in = np.asarray(P_in, dtype=float)
 
-    if phase is None:
-        phase = np.zeros(4)
-    else:
-        phase = np.asarray(phase, dtype=float)
-
-    if P_in.shape != (4,) or phase.shape != (4,):
-        raise ValueError("P_in and phase must be arrays of length 4")
 
     # Field amplitudes: |A_j|^2 = P_j
-    A0 = np.sqrt(P_in) * np.exp(1j * phase)
+    A0 = np.sqrt(P_in)
 
     return InitialConditions(A0=A0)
 
@@ -158,6 +158,7 @@ def make_model_params(
     waves: WaveParams,
     ic: InitialConditions,
 ) -> ModelParams:
+
     """
     Combine all parameter groups into a single container.
     """

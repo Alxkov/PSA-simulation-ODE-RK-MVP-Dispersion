@@ -7,6 +7,14 @@ from dataclasses import dataclass
 class SimulationConfig:
     """
     Общая конфигурация моделирования вдоль координаты z.
+
+    @z_max: km - max z coordinate
+    @dz: km - simulation step
+
+    @integrator: parameter step
+    @save_every: number of steps after the model saved data
+    @check_nan: check Nan/Inf in every step
+    @verbose: verbosity
     """
 
     # ---- Геометрия интегрирования ----
