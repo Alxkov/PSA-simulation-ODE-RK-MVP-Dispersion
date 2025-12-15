@@ -7,6 +7,7 @@ if __name__ == '__main__':
         check_nan=True, verbose=False)
     config.validate_config(cfg)
     params = parameters.make_parameters(cfg)
+
     print('Executed successfully')
 
 
