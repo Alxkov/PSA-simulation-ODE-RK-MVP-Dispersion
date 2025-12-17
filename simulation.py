@@ -155,17 +155,17 @@ def example_seeded_signal() -> tuple[np.ndarray, np.ndarray]:
 
     cfg = default_simulation_config()
 
-    gamma = 1.3 # 1/(W * km)
+    gamma = 100.0 # 1/(W * km)
     alpha = 0.0
 
-    beta = 5.8e9 * np.array([1.0, 1.0, 1.0, 1.0])      # rad/km
+    betas = 5.8e9 * np.array([1.0, 1.0, 0.99, 0.99])      # rad/km
     omega =  constants.c / 1.55e-6 * np.array([1.0, 1.0, 1.0, 1.0])     # rad/s
 
     p_in = np.array([
-        0.5,      # pump 1
+        1.0,      # pump 1
         0.5,      # pump 2
-        1e-3,     # signal
-        0.0,      # idler
+        1e-2,     # signal
+        2e-2,      # idler
     ])
 
     phase_in = np.array([
@@ -179,7 +179,7 @@ def example_seeded_signal() -> tuple[np.ndarray, np.ndarray]:
         cfg,
         gamma=gamma,
         alpha=alpha,
-        beta=beta,
+        beta=betas,
         omega=omega,
         p_in=p_in,
         phase_in=phase_in,

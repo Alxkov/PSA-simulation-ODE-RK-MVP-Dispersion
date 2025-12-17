@@ -41,8 +41,8 @@ def default_simulation_config() -> SimulationConfig:
     """
 
     return SimulationConfig(
-        z_max=100.0,      # km
-        dz=1.0,           # km
+        z_max=1.0,      # km
+        dz=1e-4,           # km
         integrator="rk4",
         save_every=10,
         check_nan=True,
