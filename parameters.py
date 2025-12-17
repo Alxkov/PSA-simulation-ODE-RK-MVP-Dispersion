@@ -148,7 +148,7 @@ def make_initial_conditions(
 
 
     # Field amplitudes: |A_j|^2 = P_j
-    A0 = np.sqrt(P_in)
+    A0 = np.sqrt(P_in, dtype=np.complex128)
 
     return InitialConditions(A0=A0)
 

@@ -17,15 +17,15 @@ import numpy as np
 
 import constants
 
-from .config import SimulationConfig, default_simulation_config, validate_config
-from .parameters import (
+from config import SimulationConfig, default_simulation_config, validate_config
+from parameters import (
     make_fiber_params,
     make_wave_params,
     make_initial_conditions,
     make_model_params,
 )
-from .integrators import integrate_interval
-from .yaman_model import rhs_yaman_simplified
+from integrators import integrate_interval
+from yaman_model import rhs_yaman_simplified
 
 
 # ---------------------------------------------------------------------
