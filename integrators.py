@@ -171,6 +171,10 @@ def integrate_interval(
         Initial state vector.
     params : object
         Arbitrary parameter container passed to f.
+    save_every : int, optional
+        How many steps a result saved
+    check_nan : bool, optional
+        Check if nan or inf is occurred
 
     Returns
     -------
