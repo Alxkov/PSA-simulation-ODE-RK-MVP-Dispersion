@@ -1,5 +1,4 @@
 import numpy as np
-from numpy.ma.core import conjugate
 
 from parameters import ModelParams
 
@@ -38,27 +37,26 @@ def rhs_yaman_simplified(
     if not np.iscomplexobj(a_arr):
         a_arr = a_arr.astype(np.complex128, copy=False)
 
-    gamma = float(params.fiber.gamma)  # [1/(W·m)]
-    alpha = float(params.fiber.alpha)  # [1/m]
-    beta = np.asarray(params.fiber.beta, dtype=float)  # [1/m], shape (4,)
+    gamma = float(params.fiber.gamma)  # [1/(W·km)]
+    alpha = float(params.fiber.alpha)  # [1/km]
+    betas = np.asarray(params.fiber.beta, dtype=float)  # [1/km], shape (4,)
 
-    if beta.shape != (4,):
+    if betas.shape != (4,):
         raise ValueError("params.fiber.beta must have shape (4,)")
 
-    linear = _linear_terms_stub(z, a_arr, alpha, beta)
+    linear = _linear_terms_stub(z, a_arr, alpha, betas)
     kerr = _kerr_terms_stub(z, a_arr, gamma)
-    fwm = _fwm_terms_stub(z, a_arr, alpha, beta)
+    fwm = _fwm_terms_stub(z, a_arr, alpha, betas, gamma)
 
     return linear + kerr + fwm
 
 
-
-def _linear_terms_stub(z: float, a_arr: np.ndarray, alpha: float, beta: np.ndarray) -> np.ndarray:
+def _linear_terms_stub(z: float, a_arr: np.ndarray, alpha: float, betas: np.ndarray) -> np.ndarray:
     """
     Stub for linear terms.
     """
 
-    return np.zeros_like(a_arr)
+    return np.zeros_like(a_arr, dtype=np.complex128)
 
 
 def _kerr_terms_stub(z: float, a_arr: np.ndarray, gamma: float) -> np.ndarray:
@@ -74,57 +72,59 @@ def _kerr_terms_stub(z: float, a_arr: np.ndarray, gamma: float) -> np.ndarray:
     two_thirds = 2.0 / 3.0
     four_thirds = 4.0 / 3.0
 
-    powers = np.abs(a_arr) ** 2
-    total_power = powers.sum()
-    other_power = total_power - powers
+    pump1, pump2, signal, idler = a_arr
 
-    factor = two_thirds * powers + four_thirds * other_power
-    return 1j * gamma * factor * a_arr[0]
+    p_p1 = np.abs(pump1) ** 2
+    p_p2 = np.abs(pump2) ** 2
+    p_s = np.abs(signal) ** 2
+    p_i = np.abs(idler) ** 2
 
+    # Same “generic” rule as your current vector form:
+    # factor_j = (2/3)*|A_j|^2 + (4/3)*sum_{k!=j}|A_k|^2
+    f_p1 = two_thirds * p_p1 + four_thirds * (p_p2 + p_s + p_i)
+    f_p2 = two_thirds * p_p2 + four_thirds * (p_p1 + p_s + p_i)
+    f_s = two_thirds * p_s + four_thirds * (p_p1 + p_p2 + p_i)
+    f_i = two_thirds * p_i + four_thirds * (p_p1 + p_p2 + p_s)
 
-import numpy as np
+    return 1j * gamma * np.array(
+        [f_p1 * pump1, f_p2 * pump2, f_s * signal, f_i * idler],
+        dtype=np.complex128,
+    )
+
 
 def _fwm_terms_stub(
     z: float,
     a_arr: np.ndarray,
     _alpha: float,
-    beta: np.ndarray,
+    betas: np.ndarray,
+    gamma: float
 ) -> np.ndarray:
     """
-    Stub for Four-Wave Mixing (FWM) terms.
+    Stub for Four-Wave Mixing (FWM) terms using explicit wave names.
 
-    Parameters
-    ----------
-    z : float
-        Propagation coordinate.
-    a_arr : np.ndarray
-        Complex amplitudes, expected shape (4,).
-    _alpha : float
-        Unused in this stub (kept for API compatibility).
-    beta : np.ndarray
-        Propagation constants, expected shape (4,), ordered as [0, 1, 2, 3].
-
-    Returns
-    -------
-    np.ndarray
-        Complex array of the same shape as `a_arr`.
+    Wave order in a_arr:
+        a_arr[0] = pump1
+        a_arr[1] = pump2
+        a_arr[2] = signal
+        a_arr[3] = idler
     """
     four_thirds = 4.0 / 3.0
-    dbeta = beta[2] + beta[3] - beta[0] - beta[1]
-    phase = np.exp(-1j * dbeta * z)
 
-    result = np.empty_like(a_arr, dtype=np.complex128)
+    pump1, pump2, signal, idler = a_arr
+    beta_p1, beta_p2, beta_s, beta_i = betas
 
-    for i in range(len(a_arr)):
-        product = 1.0 + 0.0j
-        for j, aj in enumerate(a_arr):
-            if j == i:
-                continue
+    dbeta = beta_s + beta_i - beta_p1 - beta_p2
 
-            same_group = (i < 2) == (j < 2)  # {0,1} vs {2,3}
-            product *= np.conj(aj) if same_group else aj
+    phase_pumps = np.exp(-1j * dbeta * z)
+    phase_sidebands = np.exp(1j * dbeta * z)
 
-        result[i] = four_thirds * phase * product
+    term_pump1 = phase_pumps * (np.conj(pump2) * signal * idler)
+    term_pump2 = phase_pumps * (np.conj(pump1) * signal * idler)
 
-    return result
+    term_signal = phase_sidebands * (pump1 * pump2 * np.conj(idler))
+    term_idler  = phase_sidebands * (pump1 * pump2 * np.conj(signal))
 
+    return 1j * gamma * four_thirds * np.array(
+        [term_pump1, term_pump2, term_signal, term_idler],
+        dtype=np.complex128,
+    )
