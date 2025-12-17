@@ -23,9 +23,9 @@ class FiberParams:
     Parameters describing the optical fiber.
     """
 
-    gamma: float          # [1/(W·m)] Kerr nonlinearity coefficient
-    alpha: float          # [1/m] power attenuation coefficient
-    beta: np.ndarray      # [1/m] propagation constants beta(omega_j), j = 1..4
+    gamma: float          # [1/(W·km)] Kerr nonlinearity coefficient
+    alpha: float          # [1/km] power attenuation coefficient
+    beta: np.ndarray      # [1/km] propagation constants beta(omega_j), j = 1..4
 
 
 # ---------------------------------------------------------------------

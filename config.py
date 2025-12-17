@@ -6,7 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class SimulationConfig:
     """
-    Общая конфигурация моделирования вдоль координаты z.
+    general simulation configuration
 
     @z_max: km - max z coordinate
     @dz: km - simulation step
