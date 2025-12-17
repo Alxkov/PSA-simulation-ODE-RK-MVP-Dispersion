@@ -130,9 +130,9 @@ def example_zero_signal() -> tuple[np.ndarray, np.ndarray]:
 
     p_in = np.array([
         0.5,    # pump 1
+        0.5,    # pump 2
         0.0,    # signal
         0.0,    # idler
-        0.5,    # pump 2
     ]) # units: W
 
     return run_single_simulation(
@@ -163,9 +163,9 @@ def example_seeded_signal() -> tuple[np.ndarray, np.ndarray]:
 
     p_in = np.array([
         0.5,      # pump 1
+        0.5,      # pump 2
         1e-3,     # signal
         0.0,      # idler
-        0.5,      # pump 2
     ])
 
     phase_in = np.array([

@@ -318,7 +318,6 @@ class TestSimulationPipeline(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(A.real)))
         self.assertTrue(np.all(np.isfinite(A.imag)))
 
-    @unittest.expectedFailure
     def test_example_zero_signal_wave_order_is_consistent(self) -> None:
         # This test documents the intended wave ordering.
         # If it fails, the example likely uses a different index convention than yaman_model.
