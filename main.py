@@ -4,12 +4,14 @@ import numpy as np
 import io_fwm
 from parameters import make_model_params
 from simulation import example_zero_signal, example_seeded_signal
-from plotting import plot_abs_amplitudes, plot_powers
+from plotting import plot_abs_amplitudes, plot_powers, plot_signal_and_idler, plot_signal_and_idler_separate
 
 if __name__ == '__main__':
     print('Executing main')
     z, A = example_seeded_signal()
     plot_powers(z, A)
+    plot_signal_and_idler(z, A)
+    plot_signal_and_idler_separate(z, A, title=" ")
     io_fwm.save_summary_csv("./summary.csv", z, A, overwrite=True)
     print('Executed successfully')
 
