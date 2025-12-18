@@ -160,7 +160,7 @@ def example_seeded_signal() -> tuple[np.ndarray, np.ndarray]:
     alpha = 0.0
 
     P1 = 1 # W
-    ideal_mismatch = - 2/3 * gamma * P1
+    ideal_mismatch = 0
     # ideal_mismatch = 0
     betas = 5.8e9 * np.array([1.0, 1.0, 1.0 , 1.0]) + np.array([0.0, 0.0, ideal_mismatch, ideal_mismatch])  # rad/km
     omega =  constants.c / 1.55e-6 * np.array([1.0, 1.0, 1.0, 1.0])     # rad/s

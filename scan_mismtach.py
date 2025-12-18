@@ -6,6 +6,7 @@ scan phase mismatch
 from __future__ import annotations
 
 import numpy as np
+from matplotlib import pyplot as plt
 
 import constants
 from config import default_simulation_config
@@ -53,7 +54,7 @@ def scan_mismatch_seeded_signal() -> None:
     # We scan around that guess.
     # Start with a moderate window; you can widen if the best point sits at the edge.
     span = 30.0  # 1/km
-    n_points = 241
+    n_points = 40
 
     delta_list = np.linspace(ideal_mismatch_guess - span, ideal_mismatch_guess + span, n_points)
 
@@ -80,8 +81,8 @@ def scan_mismatch_seeded_signal() -> None:
         )
 
         P = np.abs(A) ** 2
-        Ps = P[:, 2]
-        Pi = P[:, 3]
+        Ps = P[:, 0]
+        Pi = P[:, 1]
 
         Ps0 = Ps[0]
         Ps_end = Ps[-1]
@@ -112,6 +113,27 @@ def scan_mismatch_seeded_signal() -> None:
     print(f"best_delta = {best_delta:.6g} 1/km")
     print(f"Signal gain Gs = Ps(L)/Ps(0) = {best_Gs:.6g}")
     print(f"Idler relative level Gi = Pi(L)/Ps_seed(0) = {best_Gi:.6g}")
+
+    plt.figure(figsize=(8, 5))
+
+    # Protect against zeros or negative values
+    Gs_plot = np.clip(Gs, 1e-20, None)
+    Gi_plot = np.clip(Gi, 1e-20, None)
+
+    plt.semilogy(delta_list, Gs_plot, label="Signal gain  Gs", lw=2)
+    plt.semilogy(delta_list, Gi_plot, label="Idler level  Gi", lw=2, ls="--")
+
+    plt.axvline(best_delta, color="k", ls=":", lw=1.5,
+                label=f"best delta = {best_delta:.3g} 1/km")
+
+    plt.xlabel(r"$\delta$  [1/km]")
+    plt.ylabel("Gain (log scale)")
+    plt.title("Parametric gain vs phase-mismatch (log scale)")
+
+    plt.grid(True, which="both", alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
 
     # --- Re-run the best case and plot ---
     betas_best = beta0 * np.ones(4, dtype=float) + np.array([0.0, 0.0, best_delta, best_delta], dtype=float)
