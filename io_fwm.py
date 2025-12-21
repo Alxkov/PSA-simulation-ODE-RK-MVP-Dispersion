@@ -3,12 +3,6 @@ io_fwm.py
 
 Input/output helpers for simulation results.
 
-Design goals:
-- Fast and reliable storage (NumPy .npz)
-- Human-readable summaries (CSV)
-- Optional metadata (JSON) for reproducibility
-
-This module must not contain physics or numerical integration code.
 """
 
 from __future__ import annotations
@@ -51,8 +45,6 @@ def _json_default(obj: Any) -> Any:
         return obj.item()
 
     if isinstance(obj, np.ndarray):
-        # Avoid dumping huge arrays into metadata by default:
-        # if you really need arrays in metadata, store them separately in NPZ.
         return obj.tolist()
 
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
@@ -105,7 +97,7 @@ def save_result_npz(
     Returns
     -------
     Path
-        Path to the saved file.
+        Resulting path to the saved file.
     """
     p = _ensure_path(path)
     if p.suffix.lower() != ".npz":
@@ -126,13 +118,12 @@ def save_result_npz(
     if A.shape[0] != z.shape[0]:
         raise ValueError("A.shape[0] must match z.shape[0]")
 
-    # Store metadata as a JSON string (keeps NPZ self-contained)
+    # Store metadata as a JSON string
     md = _make_metadata(metadata)
     md_json = json.dumps(md, ensure_ascii=False, default=_json_default)
 
     p.parent.mkdir(parents=True, exist_ok=True)
 
-    # Use compressed format: good trade-off for large arrays
     np.savez_compressed(
         p,
         z=z,
@@ -190,7 +181,7 @@ def save_metadata_json(
     overwrite: bool = False,
 ) -> Path:
     """
-    Save metadata to a JSON file (human-readable and versionable).
+    Save metadata to a JSON file.
     """
     p = _ensure_path(path)
     if p.suffix.lower() != ".json":
@@ -302,10 +293,6 @@ def save_summary_csv(
 
     return p
 
-
-# ---------------------------------------------------------------------
-# Convenience: save everything in one call
-# ---------------------------------------------------------------------
 
 def save_run_bundle(
     output_dir: str | Path,

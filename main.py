@@ -4,7 +4,7 @@ import numpy as np
 import io_fwm
 import scan_mismtach
 from parameters import make_model_params
-from simulation import example_zero_signal, example_seeded_signal
+from simulation import example_zero_signal, custom_seeded_signal
 from plotting import plot_abs_amplitudes, plot_powers, plot_signal_and_idler, plot_signal_and_idler_separate
 
 if __name__ == '__main__':

@@ -17,27 +17,24 @@ class SimulationConfig:
     @verbose: verbosity
     """
 
-    # ---- Геометрия интегрирования ----
-    z_max: float          # [m] максимальная координата z (длина моделирования)
-    dz: float             # [m] шаг интегрирования
+    # ---- Geometry ----
+    z_max: float          # [m]
+    dz: float             # [m]
 
-    # ---- Численный метод ----
-    integrator: str       # 'rk4' (фиксированный шаг)
+    # ---- Numerical method ----
+    integrator: str       # 'rk4'
 
-    # ---- Контроль расчёта ----
-    save_every: int       # сохранять состояние каждые N шагов
-    check_nan: bool       # проверять NaN / Inf на каждом шаге
-    verbose: bool         # печатать диагностические сообщения
+    # ---- Evaluation control ----
+    save_every: int       # save state every save_every steps
+    check_nan: bool       # check NaN / Inf each step
+    verbose: bool         # print debug info
 
 
 def default_simulation_config() -> SimulationConfig:
     """
-    Конфигурация по умолчанию — безопасная для большинства FWM/OPA расчётов.
-
-    Возвращает
+    Returns
     ----------
     SimulationConfig
-        Объект конфигурации моделирования
     """
 
     return SimulationConfig(
@@ -52,16 +49,10 @@ def default_simulation_config() -> SimulationConfig:
 
 def validate_config(cfg: SimulationConfig) -> None:
     """
-    Проверка корректности конфигурации.
-
-    Параметры
-    ----------
-    cfg : SimulationConfig
-
-    Исключения
+    Exception
     ----------
     ValueError
-        Если параметры некорректны
+        For incorrect parameters
     """
     if cfg.z_max <= 0.0:
         raise ValueError("z_max must be positive")

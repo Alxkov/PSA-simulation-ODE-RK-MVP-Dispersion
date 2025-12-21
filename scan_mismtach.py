@@ -18,11 +18,10 @@ def scan_mismatch_seeded_signal() -> None:
     """
     Scan the beta-mismatch offset (delta added to beta_s and beta_i) and compute gain.
 
-    We keep your "toy" setup where all omegas are equal and we control mismatch via betas.
     Units:
         gamma: 1/(W*km)
-        betas: 1/km (your comment says rad/km, but the model uses them as 1/km phases)
-        z: km (per yaman_model.py and config.py defaults)
+        betas: 1/km
+        z: km
     """
 
     cfg = default_simulation_config()
@@ -36,7 +35,7 @@ def scan_mismatch_seeded_signal() -> None:
         P1_total / 2.0,  # pump1
         P1_total / 2.0,  # pump2
         1e-3,            # signal seed
-        0.0,             # idler seed
+        1e-4,             # idler seed
     ], dtype=float)
 
     # Base betas and omegas
@@ -46,15 +45,14 @@ def scan_mismatch_seeded_signal() -> None:
 
     # Reference signal power (for gain definitions)
     Ps0_ref = p_in[2]
+    Ps1_ref = p_in[3]
 
     # --- Scan range ---
-    # Your previous "single-pump-inspired" guess:
+    # Previous "single-pump-inspired" guess:
     ideal_mismatch_guess = -(2.0 / 3.0) * gamma * P1_total  # 1/km
 
-    # We scan around that guess.
-    # Start with a moderate window; you can widen if the best point sits at the edge.
     span = 30.0  # 1/km
-    n_points = 40
+    n_points = 200
 
     delta_list = np.linspace(ideal_mismatch_guess - span, ideal_mismatch_guess + span, n_points)
 
@@ -81,8 +79,8 @@ def scan_mismatch_seeded_signal() -> None:
         )
 
         P = np.abs(A) ** 2
-        Ps = P[:, 0]
-        Pi = P[:, 1]
+        Ps = P[:, 2]
+        Pi = P[:, 3]
 
         Ps0 = Ps[0]
         Ps_end = Ps[-1]
@@ -93,7 +91,7 @@ def scan_mismatch_seeded_signal() -> None:
         # - Idler "gain" relative to seeded signal reference to avoid division by ~0
         eps = 1e-30
         Gs[k] = Ps_end / (Ps0 + eps)
-        Gi[k] = Pi_end / (Ps0_ref + eps)
+        Gi[k] = Pi_end / (Ps1_ref + eps)
 
         PsL[k] = Ps_end
         PiL[k] = Pi_end
@@ -148,12 +146,10 @@ def scan_mismatch_seeded_signal() -> None:
         phase_in=None,
     )
 
-    # Your plotting defaults label z as "m", but your model uses km (see yaman_model.py/config.py).
-    # So we pass z_unit="km" for honest labeling.
     plot_signal_and_idler(z_best, A_best, title=f"Best delta = {best_delta:.3g} 1/km", z_unit="km")
     plot_powers(z_best, A_best, title=f"Powers at best delta = {best_delta:.3g} 1/km", z_unit="km")
 
-    # --- Also print a small table around optimum ---
+    # --- Print a small table around optimum ---
     lo = max(0, best_idx - 3)
     hi = min(len(delta_list), best_idx + 4)
 

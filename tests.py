@@ -6,9 +6,6 @@ Unit tests for the Yaman FWM / OPA toy project.
 How to run:
     python -m unittest -v tests.py
 
-Notes:
-- These are *unit* tests: they validate small pieces (config/params/integrators/model RHS).
-- A tiny pipeline test is included to ensure modules connect without crashing.
 """
 
 from __future__ import annotations
@@ -319,14 +316,9 @@ class TestSimulationPipeline(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(A.imag)))
 
     def test_example_zero_signal_wave_order_is_consistent(self) -> None:
-        # This test documents the intended wave ordering.
-        # If it fails, the example likely uses a different index convention than yaman_model.
         z, A = simulation.example_zero_signal()
         self.assertEqual(A.shape[1], 4)
 
-        # Intended order: [pump1, pump2, signal, idler]
-        # In "zero signal" example, signal and idler should be exactly zero at z=0.
-        # If the example uses a different ordering, these indices will not be zero.
         np.testing.assert_allclose(A[0, 2], 0.0 + 0.0j, rtol=0.0, atol=0.0)
         np.testing.assert_allclose(A[0, 3], 0.0 + 0.0j, rtol=0.0, atol=0.0)
 

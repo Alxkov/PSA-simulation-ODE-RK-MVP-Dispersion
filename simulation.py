@@ -8,7 +8,6 @@ This module defines HOW simulations are run:
 - calling the integrator
 - returning raw results
 
-No physics, no numerical algorithms, no plotting.
 """
 
 from __future__ import annotations
@@ -117,8 +116,6 @@ def example_zero_signal() -> tuple[np.ndarray, np.ndarray]:
     """
     Example 1:
     Two pumps, zero signal and idler at the input.
-
-    This is a minimal smoke test for the solver pipeline.
     """
 
     cfg = default_simulation_config()
@@ -146,12 +143,9 @@ def example_zero_signal() -> tuple[np.ndarray, np.ndarray]:
     )
 
 
-def example_seeded_signal() -> tuple[np.ndarray, np.ndarray]:
+def custom_seeded_signal() -> tuple[np.ndarray, np.ndarray]:
     """
-    Example 2:
-    Two pumps with a weak seeded signal.
-
-    This is the standard configuration for stimulated FWM / OPA.
+    custom signal
     """
 
     cfg = default_simulation_config()

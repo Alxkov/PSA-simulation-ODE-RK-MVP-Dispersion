@@ -3,8 +3,6 @@ plotting.py
 
 Visualization utilities for simulation results.
 
-This module contains ONLY plotting code.
-No physics, no numerical integration, no file I/O.
 """
 
 from __future__ import annotations
@@ -51,8 +49,7 @@ def _apply_log_scale(y: np.ndarray, *, log_base: float, eps: float) -> np.ndarra
         raise ValueError("eps must be > 0 for log-scale clipping")
 
     y_safe = np.maximum(y, eps)
-    # Note: we don't take logarithm ourselves; matplotlib does that.
-    # We only ensure positivity.
+
     return y_safe
 
 
@@ -124,7 +121,7 @@ def _plot_series(
 
 
 # -----------------------------
-# Public functions (thin wrappers)
+# Public functions
 # -----------------------------
 
 def plot_abs_amplitudes(
