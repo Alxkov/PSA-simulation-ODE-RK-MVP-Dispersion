@@ -143,7 +143,8 @@ def integrate_fixed_step(
 
 
 # ---------------------------------------------------------------------
-# Convenience wrapper: integrate on [0, z_max] with fixed dz
+# Convenience wrapper: i
+# ntegrate on [0, z_max] with fixed dz
 # ---------------------------------------------------------------------
 
 def integrate_interval(

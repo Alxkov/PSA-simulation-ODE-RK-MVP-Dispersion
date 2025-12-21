@@ -14,6 +14,6 @@ if __name__ == '__main__':
     # plot_signal_and_idler(z, A)
     # plot_signal_and_idler_separate(z, A, title=" ")
     # io_fwm.save_summary_csv("./summary.csv", z, A, overwrite=True)
-    scan_mismtach.scan_mismatch_seeded_signal()
+    scan_mismtach.scan_mismatch_seeded_signal(gain_mode="end")
     print('Executed successfully')
 
