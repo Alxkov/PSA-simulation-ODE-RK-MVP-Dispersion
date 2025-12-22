@@ -38,12 +38,35 @@ def default_simulation_config() -> SimulationConfig:
     """
 
     return SimulationConfig(
-        z_max=2.0,      # km
+        z_max=0.5,      # km
         dz=1e-3,           # km
         integrator="rk4",
         save_every=10,
         check_nan=True,
         verbose=False,
+    )
+
+def custom_simulation_config(
+        *,
+        z_max=1.0,
+        dz=1e-3,
+        integrator="rk4",
+        save_every=10,
+        check_nan=True,
+        verbose=False) -> SimulationConfig:
+    """
+    Returns
+    ----------
+    SimulationConfig
+    """
+
+    return SimulationConfig(
+        z_max=z_max,      # km
+        dz=dz,           # km
+        integrator=integrator,
+        save_every=save_every,
+        check_nan=check_nan,
+        verbose=verbose,
     )
 
 

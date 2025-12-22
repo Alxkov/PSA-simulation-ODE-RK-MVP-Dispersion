@@ -5,17 +5,17 @@ scan phase mismatch
 
 from __future__ import annotations
 
-import numpy as np
-from matplotlib import pyplot as plt
-
 import constants
-from config import default_simulation_config
+from config import default_simulation_config, custom_simulation_config
 from simulation import run_single_simulation
 from plotting import plot_signal_and_idler, plot_powers
 
 from typing import Literal
 import numpy as np
 import matplotlib.pyplot as plt
+
+import time
+from tqdm import tqdm  # pip install tqdm
 
 GainMode = Literal["end", "max"]
 
@@ -36,7 +36,7 @@ def _select_power_metric(Pz: np.ndarray, mode: GainMode) -> float:
     raise ValueError(f"Unknown gain_mode={mode!r}. Use 'end' or 'max'.")
 
 
-def scan_mismatch_seeded_signal(gain_mode: GainMode = "end") -> None:
+def scan_mismatch_seeded_signal(gain_mode: "GainMode" = "end") -> None:
     """
     Scan the beta-mismatch offset (delta added to beta_s and beta_i) and compute gain.
 
@@ -49,19 +49,24 @@ def scan_mismatch_seeded_signal(gain_mode: GainMode = "end") -> None:
         betas: 1/km
         z: km
     """
-    cfg = default_simulation_config()
+    cfg = custom_simulation_config(
+        z_max=0.1
+    )
 
     # --- Fixed physical parameters (your current choice) ---
     gamma = 10.0  # 1/(W*km)
     alpha = 0.0
 
     P1_total = 1.0  # W, total pump power (split equally)
-    p_in = np.array([
-        P1_total / 2.0,  # pump1
-        P1_total / 2.0,  # pump2
-        1e-3,            # signal seed
-        1e-4,            # idler seed
-    ], dtype=float)
+    p_in = np.array(
+        [
+            P1_total / 2.0,  # pump1
+            P1_total / 2.0,  # pump2
+            1e-3,            # signal seed
+            1e-4,            # idler seed
+        ],
+        dtype=float,
+    )
 
     # Base betas and omegas
     beta0 = 5.8e9  # 1/km
@@ -76,7 +81,11 @@ def scan_mismatch_seeded_signal(gain_mode: GainMode = "end") -> None:
     ideal_mismatch_guess = 0.0
     span = 20.0  # 1/km
     n_points = 100
-    delta_list = np.linspace(ideal_mismatch_guess - span, ideal_mismatch_guess + span, n_points)
+    delta_list = np.linspace(
+        ideal_mismatch_guess - span,
+        ideal_mismatch_guess + span,
+        n_points,
+    )
 
     # Storage
     Gs = np.empty_like(delta_list)
@@ -86,9 +95,30 @@ def scan_mismatch_seeded_signal(gain_mode: GainMode = "end") -> None:
     Ps_metric_arr = np.empty_like(delta_list)
     Pi_metric_arr = np.empty_like(delta_list)
 
-    # --- Run scan ---
+    metric_label = "P(z_max)" if gain_mode == "end" else "max_z P(z)"
+
+    print("=== Starting mismatch scan ===")
+    print(f"n_points = {n_points}")
+    print(f"delta range = [{float(delta_list[0]):.6g}, {float(delta_list[-1]):.6g}] 1/km")
+    print(f"Gain metric mode = {gain_mode!r}  -> using {metric_label}")
+
+    # --- Run scan with timer + progress bar ---
     eps = 1e-30
-    for k, delta in enumerate(delta_list):
+    t0 = time.perf_counter()
+
+    best_idx_running = 0
+    best_gs_running = -np.inf
+
+    bar = tqdm(
+        enumerate(delta_list),
+        total=len(delta_list),
+        desc="Scanning mismatch",
+        unit="pt",
+        dynamic_ncols=True,
+        leave=True,
+    )
+
+    for k, delta in bar:
         betas = beta0 * np.ones(4, dtype=float) + np.array([0.0, 0.0, delta, delta], dtype=float)
 
         z, A = run_single_simulation(
@@ -111,20 +141,44 @@ def scan_mismatch_seeded_signal(gain_mode: GainMode = "end") -> None:
         Pi_metric = _select_power_metric(Pi, gain_mode)
 
         # Gain definitions
-        Gs[k] = Ps_metric / (Ps0 + eps)
-        # Keep your original idea: idler level relative to idler seed (to avoid division by ~0, if needed)
-        Gi[k] = Pi_metric / (Pi0_ref + eps)
+        gs_val = Ps_metric / (Ps0 + eps)
+        gi_val = Pi_metric / (Pi0_ref + eps)
+
+        Gs[k] = gs_val
+        Gi[k] = gi_val
 
         Ps_metric_arr[k] = Ps_metric
         Pi_metric_arr[k] = Pi_metric
+
+        if gs_val > best_gs_running:
+            best_gs_running = float(gs_val)
+            best_idx_running = int(k)
+
+        elapsed = time.perf_counter() - t0
+        avg = elapsed / (k + 1)
+        bar.set_postfix(
+            delta=f"{float(delta):.3g}",
+            Gs=f"{float(gs_val):.3g}",
+            Gi=f"{float(gi_val):.3g}",
+            bestGs=f"{best_gs_running:.3g}",
+            avg_s=f"{avg:.3f}",
+        )
+
+    t1 = time.perf_counter()
+    elapsed_total = t1 - t0
+    avg_per_point = elapsed_total / max(1, len(delta_list))
+    pts_per_sec = (len(delta_list) / elapsed_total) if elapsed_total > 0 else float("inf")
+
+    print("=== Timing ===")
+    print(f"Elapsed total: {elapsed_total:.3f} s")
+    print(f"Avg per point: {avg_per_point:.4f} s/pt")
+    print(f"Throughput:    {pts_per_sec:.2f} pt/s")
 
     # --- Find best mismatch for signal gain ---
     best_idx = int(np.argmax(Gs))
     best_delta = float(delta_list[best_idx])
     best_Gs = float(Gs[best_idx])
     best_Gi = float(Gi[best_idx])
-
-    metric_label = "P(z_max)" if gain_mode == "end" else "max_z P(z)"
 
     print("=== Mismatch scan results ===")
     print(f"gamma = {gamma:.6g} 1/(W*km)")
@@ -137,6 +191,7 @@ def scan_mismatch_seeded_signal(gain_mode: GainMode = "end") -> None:
     print(f"best_delta = {best_delta:.6g} 1/km")
     print(f"Signal gain Gs = {metric_label}/Ps(0) = {best_Gs:.6g}")
     print(f"Idler  level Gi = {metric_label}/Pi(0) = {best_Gi:.6g}")
+    print(f"(Progress bar best-so-far index during scan was {best_idx_running}, final best index is {best_idx}.)")
 
     # --- Plot gain vs mismatch ---
     plt.figure(figsize=(8, 5))
@@ -147,8 +202,7 @@ def scan_mismatch_seeded_signal(gain_mode: GainMode = "end") -> None:
     plt.semilogy(delta_list, Gs_plot, label=f"Signal gain  Gs ({gain_mode})", lw=2)
     plt.semilogy(delta_list, Gi_plot, label=f"Idler level  Gi ({gain_mode})", lw=2, ls="--")
 
-    plt.axvline(best_delta, color="k", ls=":", lw=1.5,
-                label=f"best delta = {best_delta:.3g} 1/km")
+    plt.axvline(best_delta, color="k", ls=":", lw=1.5, label=f"best delta = {best_delta:.3g} 1/km")
 
     plt.xlabel(r"$\delta$  [1/km]")
     plt.ylabel("Gain (log scale)")

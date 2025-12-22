@@ -17,7 +17,7 @@ import numpy as np
 import constants
 from math import sqrt
 
-from config import SimulationConfig, default_simulation_config, validate_config
+from config import SimulationConfig, default_simulation_config, custom_simulation_config, validate_config
 from parameters import (
     make_fiber_params,
     make_wave_params,
@@ -148,7 +148,7 @@ def custom_seeded_signal() -> tuple[np.ndarray, np.ndarray]:
     custom signal
     """
 
-    cfg = default_simulation_config()
+    cfg = custom_simulation_config(z_max=0.1, dz=1e-8)
 
     gamma = 10.0 # 1/(W * km)
     alpha = 0.0

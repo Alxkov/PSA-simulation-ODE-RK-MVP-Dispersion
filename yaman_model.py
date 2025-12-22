@@ -55,8 +55,14 @@ def _linear_terms_stub(z: float, a_arr: np.ndarray, alpha: float, betas: np.ndar
     """
     Stub for linear terms.
     """
+    a_arr = np.asarray(a_arr)
+    if a_arr.shape != (4,):
+        raise ValueError("a_arr must have shape (4,)")
 
-    return np.zeros_like(a_arr, dtype=np.complex128)
+    if not np.iscomplexobj(a_arr):
+        a_arr = a_arr.astype(np.complex128, copy=False)
+
+    return 1j * a_arr * betas
 
 
 def _kerr_terms_stub(z: float, a_arr: np.ndarray, gamma: float) -> np.ndarray:
@@ -69,8 +75,8 @@ def _kerr_terms_stub(z: float, a_arr: np.ndarray, gamma: float) -> np.ndarray:
 
     """
 
-    two_thirds = 2.0 / 3.0
-    four_thirds = 4.0 / 3.0
+    one = 1.0
+    two = 2.0
 
     pump1, pump2, signal, idler = a_arr
 
@@ -81,10 +87,10 @@ def _kerr_terms_stub(z: float, a_arr: np.ndarray, gamma: float) -> np.ndarray:
 
     # Same “generic” rule as your current vector form:
     # factor_j = (2/3)*|A_j|^2 + (4/3)*sum_{k!=j}|A_k|^2
-    f_p1 = two_thirds * p_p1 + four_thirds * (p_p2 + p_s + p_i)
-    f_p2 = two_thirds * p_p2 + four_thirds * (p_p1 + p_s + p_i)
-    f_s = two_thirds * p_s + four_thirds * (p_p1 + p_p2 + p_i)
-    f_i = two_thirds * p_i + four_thirds * (p_p1 + p_p2 + p_s)
+    f_p1 = one * p_p1 + two * (p_p2 + p_s + p_i)
+    f_p2 = one * p_p2 + two * (p_p1 + p_s + p_i)
+    f_s = one * p_s + two * (p_p1 + p_p2 + p_i)
+    f_i = one * p_i + two * (p_p1 + p_p2 + p_s)
 
     return 1j * gamma * np.array(
         [f_p1 * pump1, f_p2 * pump2, f_s * signal, f_i * idler],
@@ -108,7 +114,7 @@ def _fwm_terms_stub(
         a_arr[2] = signal
         a_arr[3] = idler
     """
-    four_thirds = 4.0 / 3.0
+    two = 2.0
 
     pump1, pump2, signal, idler = a_arr
     beta_p1, beta_p2, beta_s, beta_i = betas
@@ -124,7 +130,7 @@ def _fwm_terms_stub(
     term_signal = phase_sidebands * (pump1 * pump2 * np.conj(idler))
     term_idler  = phase_sidebands * (pump1 * pump2 * np.conj(signal))
 
-    return 1j * gamma * four_thirds * np.array(
+    return 1j * gamma * two * np.array(
         [term_pump1, term_pump2, term_signal, term_idler],
         dtype=np.complex128,
     )
