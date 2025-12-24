@@ -55,14 +55,8 @@ def _linear_terms_stub(z: float, a_arr: np.ndarray, alpha: float, betas: np.ndar
     """
     Stub for linear terms.
     """
-    a_arr = np.asarray(a_arr)
-    if a_arr.shape != (4,):
-        raise ValueError("a_arr must have shape (4,)")
 
-    if not np.iscomplexobj(a_arr):
-        a_arr = a_arr.astype(np.complex128, copy=False)
-
-    return 1j * a_arr * betas
+    return np.zeros_like(a_arr)
 
 
 def _kerr_terms_stub(z: float, a_arr: np.ndarray, gamma: float) -> np.ndarray:
@@ -85,8 +79,6 @@ def _kerr_terms_stub(z: float, a_arr: np.ndarray, gamma: float) -> np.ndarray:
     p_s = np.abs(signal) ** 2
     p_i = np.abs(idler) ** 2
 
-    # Same “generic” rule as your current vector form:
-    # factor_j = (2/3)*|A_j|^2 + (4/3)*sum_{k!=j}|A_k|^2
     f_p1 = one * p_p1 + two * (p_p2 + p_s + p_i)
     f_p2 = one * p_p2 + two * (p_p1 + p_s + p_i)
     f_s = one * p_s + two * (p_p1 + p_p2 + p_i)
@@ -121,8 +113,8 @@ def _fwm_terms_stub(
 
     dbeta = beta_s + beta_i - beta_p1 - beta_p2
 
-    phase_pumps = np.exp(-1j * dbeta * z)
-    phase_sidebands = np.exp(1j * dbeta * z)
+    phase_pumps = np.exp(1j * dbeta * z)
+    phase_sidebands = np.exp(-1j * dbeta * z)
 
     term_pump1 = phase_pumps * (np.conj(pump2) * signal * idler)
     term_pump2 = phase_pumps * (np.conj(pump1) * signal * idler)

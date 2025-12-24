@@ -50,7 +50,8 @@ def scan_mismatch_seeded_signal(gain_mode: "GainMode" = "end") -> None:
         z: km
     """
     cfg = custom_simulation_config(
-        z_max=0.1
+        z_max=0.2,
+        dz=1e-3
     )
 
     # --- Fixed physical parameters (your current choice) ---
@@ -60,10 +61,10 @@ def scan_mismatch_seeded_signal(gain_mode: "GainMode" = "end") -> None:
     P1_total = 1.0  # W, total pump power (split equally)
     p_in = np.array(
         [
-            P1_total / 2.0,  # pump1
-            P1_total / 2.0,  # pump2
-            1e-3,            # signal seed
-            1e-4,            # idler seed
+            P1_total,  # pump1
+            P1_total,  # pump2
+            1e-5,            # signal seed
+            0,            # idler seed
         ],
         dtype=float,
     )
@@ -75,12 +76,12 @@ def scan_mismatch_seeded_signal(gain_mode: "GainMode" = "end") -> None:
 
     # Reference input powers (for gain definitions)
     Ps0_ref = float(p_in[2])
-    Pi0_ref = float(p_in[3])
+    Pi0_ref = float(p_in[2])
 
     # --- Scan range ---
     ideal_mismatch_guess = 0.0
-    span = 20.0  # 1/km
-    n_points = 100
+    span = 40.0  # 1/km
+    n_points = 200
     delta_list = np.linspace(
         ideal_mismatch_guess - span,
         ideal_mismatch_guess + span,
@@ -119,7 +120,7 @@ def scan_mismatch_seeded_signal(gain_mode: "GainMode" = "end") -> None:
     )
 
     for k, delta in bar:
-        betas = beta0 * np.ones(4, dtype=float) + np.array([0.0, 0.0, delta, delta], dtype=float)
+        betas = beta0 * np.ones(4, dtype=float) + np.array([0.0, 0.0, 0.0, delta], dtype=float)
 
         z, A = run_single_simulation(
             cfg,
@@ -200,7 +201,7 @@ def scan_mismatch_seeded_signal(gain_mode: "GainMode" = "end") -> None:
     Gi_plot = np.clip(Gi, 1e-20, None)
 
     plt.semilogy(delta_list, Gs_plot, label=f"Signal gain  Gs ({gain_mode})", lw=2)
-    plt.semilogy(delta_list, Gi_plot, label=f"Idler level  Gi ({gain_mode})", lw=2, ls="--")
+    # plt.semilogy(delta_list, Gi_plot, label=f"Idler level  Gi ({gain_mode})", lw=2, ls="--")
 
     plt.axvline(best_delta, color="k", ls=":", lw=1.5, label=f"best delta = {best_delta:.3g} 1/km")
 
