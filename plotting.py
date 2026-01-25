@@ -143,7 +143,7 @@ def plot_abs_amplitudes(
         abs_A,
         labels,
         title=title,
-        xlabel="z [m]",
+        xlabel="z [km]",
         ylabel="|A(z)|",
         log_scale=False,
         log_base=10,
@@ -164,7 +164,7 @@ def plot_powers(
     log_eps: float = 1e-30,
     show: bool = True,
     save_path: str | None = None,
-    z_unit: str = "m",
+    z_unit: str = "km",
 ) -> None:
     z_arr, A_arr = _validate_z_A(z, A)
     labels = _validate_labels(wave_labels, 4)
@@ -198,7 +198,7 @@ def plot_signal_and_idler(
     log_eps: float = 1e-30,
     show: bool = True,
     save_path: str | None = None,
-    z_unit: str = "m",
+    z_unit: str = "km",
 ) -> None:
     z_arr, A_arr = _validate_z_A(z, A)
     labels = _validate_labels(wave_labels, 2)
@@ -233,7 +233,7 @@ def plot_signal_and_idler_separate(
     show: bool = True,
     save_path_signal: str | None = None,
     save_path_idler: str | None = None,
-    z_unit: str = "m",
+    z_unit: str = "km",
 ) -> None:
     """
     Plot signal and idler powers as two separate figures.
