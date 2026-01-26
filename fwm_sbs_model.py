@@ -200,9 +200,9 @@ def rhs_forward_AQ(
     B_at_z : np.ndarray
         Backward fields at the same z, shape (4,) complex.
     dbeta : float, optional
-        If provided, uses this Δβ; otherwise computes from params.fiber.beta.
+        If provided, uses this dBeta; otherwise computes from params.fiber.beta.
     delta_omega : np.ndarray, optional
-        If provided, uses this ΔΩ array (shape (4,)); otherwise computes from params.
+        If provided, uses this dOmega array (shape (4,)); otherwise computes from params.
 
     Returns
     -------

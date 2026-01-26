@@ -125,6 +125,7 @@ def integrate_fixed_step(
 
     for i in range(n_steps):
         z = z_grid[i]
+
         dz = z_grid[i + 1] - z_grid[i]
 
         y = rk4_step(f, z, y, dz, params)
@@ -143,8 +144,7 @@ def integrate_fixed_step(
 
 
 # ---------------------------------------------------------------------
-# Convenience wrapper: i
-# ntegrate on [0, z_max] with fixed dz
+# Convenience wrapper: integrate on [0, z_max] with fixed dz
 # ---------------------------------------------------------------------
 
 def integrate_interval(

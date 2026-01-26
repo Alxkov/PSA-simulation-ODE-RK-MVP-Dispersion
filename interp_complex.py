@@ -173,7 +173,7 @@ def interp_complex_vec(
             raise ValueError(f"right must have shape ({M},), got {right_arr.shape}")
         right_c = right_arr.astype(np.complex128, copy=False)
 
-    # Interpolate each channel. M is small (4 or 8), loop is fine and clear.
+    # Interpolate each channel. M is 4 or 8
     out = np.empty((M,), dtype=np.complex128)
     zq = float(z0)
     for j in range(M):

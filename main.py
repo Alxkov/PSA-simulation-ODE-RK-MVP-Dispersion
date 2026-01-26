@@ -35,7 +35,7 @@ def main() -> None:
     # Numerical configuration
     # -----------------------------
     cfg = custom_simulation_config(
-        z_max=1.0,        # km
+        z_max=2.0e-1,        # km
         dz=1e-4,          # km  (0.1 m)
         save_every=20,
         check_nan=True,
@@ -50,13 +50,13 @@ def main() -> None:
     )
 
     # -----------------------------
-    # Optical frequencies (example)
+    # Optical frequencies
     # -----------------------------
     # Two pumps + seeded signal; idler computed by energy conservation:
     #   ω4 = ω1 + ω2 - ω3
-    lam_p1 = 1550e-9
+    lam_p1 = 1540e-9
     lam_p2 = 1560e-9
-    lam_s  = 1540e-9
+    lam_s  = 1548e-9
 
     w1 = _omega_from_lambda_m(lam_p1)
     w2 = _omega_from_lambda_m(lam_p2)
@@ -92,13 +92,14 @@ def main() -> None:
 
     P_A0 = np.array([P_p1, P_p2, P_s, P_i], dtype=float)
 
-    # You can set phases if you want (simulation_sbs supports them)
+    # Phases initial conditions
     phase_A0 = np.array([0.0, 0.0, 0.0, 0.0], dtype=float)
 
     # -----------------------------
     # Backward boundary at z=L (tiny seeds to "turn on" SBS)
     # -----------------------------
     # Without a spontaneous-noise model, SBS needs a seed. Use ultra-small powers.
+
     P_B_L = np.array([1e-12, 1e-12, 1e-12, 1e-12], dtype=float)
     phase_B_L = np.array([0.0, 0.0, 0.0, 0.0], dtype=float)
 
@@ -106,16 +107,16 @@ def main() -> None:
     # SBS parameters (typical silica-ish magnitudes)
     # -----------------------------
     OmegaB = 2.0 * pi * 10.8e9   # rad/s  (Brillouin shift ~10.8 GHz)
-    GammaB = 2.0 * pi * 30e6     # 1/s    (acoustic linewidth scale ~30 MHz)
+    GammaB = 5e4                 # 1/s
     vA_km_s = 5.96e3 * 1e-3      # 5960 m/s -> 5.96 km/s
 
     # Coupling coefficients in your scalar model (project-specific scaling):
     # Choose small nonzero values so SBS is present but not overwhelmingly strong.
-    kappa1 = 1e-4
-    kappa2 = 1e-4
+    kappa1 = 0.1
+    kappa2 = 0.1
 
-    # Optional: set omega_B. If None, simulation_sbs will use omega_B = omega - OmegaB
-    # which makes ΔΩ = 0 by construction.
+    # If None, simulation_sbs will use omega_B = omega - OmegaB
+    # which makes dOmega = 0 by construction.
     omega_B = None
 
     # -----------------------------
