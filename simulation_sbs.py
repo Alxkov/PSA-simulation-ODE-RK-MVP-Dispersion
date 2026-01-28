@@ -1,277 +1,281 @@
 """
 simulation_sbs.py
 
-High-level simulation runner for the coupled Scalar FWM + SBS model.
+High-level simulation runner for the coupled scalar FWM + SBS model.
 
-This module defines HOW SBS simulations are run:
-- assembling parameters (fiber/waves/SBS/boundaries)
-- calling the bidirectional fixed-point solver
-- returning raw results
+This module should:
+- validate SimulationConfig
+- assemble physical/model parameter objects (from parameters_sbs.py)
+- call the solver (solver_fwm_sbs.py)
+- return raw arrays (z, A, B, Q) + optional diagnostics dict
 
-It is intentionally parallel to simulation.py, and does NOT change the pure-FWM path.
+Key change (vs the earlier "all-numerical" approach):
+----------------------------------------------------
+We now expose `solver_settings` / `forward_method` so you can select the
+"fast Q" exact exponential update (variable-change style) for stiff ΓB,
+while retaining the option to run the full RK4 evolution for Q.
 
+Assumptions (consistent with the rest of your project):
+- z is in km
+- gamma is in 1/(W*km)
+- alpha is in 1/km
+- beta is in 1/km
+- fields A,B have units sqrt(W)
 """
 
 from __future__ import annotations
 
-from typing import Optional, Tuple, Dict, Any
+from dataclasses import asdict, is_dataclass
+from typing import Any
+
 import numpy as np
 
-import constants
-from math import pi
+from config import SimulationConfig, validate_config
 
-from config import SimulationConfig, default_simulation_config, custom_simulation_config, validate_config
-from parameters import make_fiber_params, make_wave_params
-
+# Your SBS parameter module (previously implemented)
 from parameters_sbs import (
-    SBSParams,
-    SBSBoundaryConditions,
-    FWM_SBS_ModelParams,
+    make_fiber_params_sbs,
+    make_wave_params_sbs,
     make_sbs_params,
-    make_sbs_params_from_m_per_s,
-    make_sbs_boundary_conditions,
-    make_sbs_boundary_conditions_from_powers,
-    make_fwm_sbs_model_params,
+    make_boundary_conditions_sbs,
+    make_initial_conditions_sbs,
+    make_fwm_sbs_params,
 )
 
-from solver_fwm_sbs import solve_fwm_sbs, SolverSettings
+# Your coupled solver (previously implemented / modified)
+from solver_fwm_sbs import (
+    SolverSettings,
+    solve_fwm_sbs,
+)
 
 
 # ---------------------------------------------------------------------
-# Core SBS simulation runners
+# Small helpers
 # ---------------------------------------------------------------------
 
-def run_single_simulation_sbs_fields(
+def _as_1d_float(x: np.ndarray | list[float] | tuple[float, ...], n: int, name: str) -> np.ndarray:
+    arr = np.asarray(x, dtype=float).reshape(-1)
+    if arr.shape != (n,):
+        raise ValueError(f"{name} must have shape ({n},), got {arr.shape}")
+    return arr
+
+
+def _as_1d_complex(x: np.ndarray | list[complex] | tuple[complex, ...], n: int, name: str) -> np.ndarray:
+    arr = np.asarray(x, dtype=np.complex128).reshape(-1)
+    if arr.shape != (n,):
+        raise ValueError(f"{name} must have shape ({n},), got {arr.shape}")
+    return arr
+
+
+def _fields_from_power_phase(P: np.ndarray, phase: np.ndarray | None, name: str) -> np.ndarray:
+    """
+    Build complex field vector from powers and (optional) phases.
+    Convention: |A_j|^2 = P_j.
+    """
+    P = np.asarray(P, dtype=float).reshape(-1)
+    if np.any(P < 0.0):
+        raise ValueError(f"{name} powers must be non-negative")
+
+    amp = np.sqrt(P, dtype=np.complex128)
+
+    if phase is None:
+        return amp
+
+    phase = np.asarray(phase, dtype=float).reshape(-1)
+    if phase.shape != P.shape:
+        raise ValueError(f"{name} phase must have same shape as powers, got {phase.shape} vs {P.shape}")
+
+    return amp * np.exp(1j * phase)
+
+
+def _maybe_metadata(obj: Any) -> Any:
+    if is_dataclass(obj):
+        return asdict(obj)
+    return obj
+
+
+# ---------------------------------------------------------------------
+# Core simulation runner
+# ---------------------------------------------------------------------
+
+def run_single_simulation_fwm_sbs(
     cfg: SimulationConfig,
     *,
+    # ---- Kerr/FWM optics ----
     gamma: float,
     alpha: float,
-    beta: np.ndarray,
-    omega: np.ndarray,
-    # Boundary fields
-    A0: np.ndarray,                # complex, shape (4,)
-    B_L: np.ndarray,               # complex, shape (4,)
-    Q0: Optional[np.ndarray] = None,  # complex, shape (4,) or None -> zeros
-    # SBS parameters (simplified)
-    kappa1: float,
-    kappa2: float,
-    OmegaB: float,                 # rad/s
-    GammaB: float,                 # 1/s
-    vA_km_s: float,                # km/s
-    omega_B: Optional[np.ndarray] = None,  # rad/s, shape (4,) (defaults to omega - OmegaB)
-    # Solver settings
-    solver_settings: Optional[SolverSettings] = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
+    beta: np.ndarray,      # (4,) 1/km
+    omega: np.ndarray,     # (4,) rad/s (kept for completeness; you may not use it in RHS)
+    p_in_forward: np.ndarray,   # (4,) W
+    p_in_backward: np.ndarray | None = None,  # (4,) W (typically 0 at z=L)
+    phase_in_forward: np.ndarray | None = None,   # (4,) rad
+    phase_in_backward: np.ndarray | None = None,  # (4,) rad
+
+    # ---- SBS ----
+    kappa1: float = 0.0,       # 1/(sqrt(W)*km)
+    kappa2: float = 0.0,
+    v_a: float = 1.0,          # acoustic velocity scaling in your z-domain model (must match RHS conventions)
+    Gamma_B: float = 1.0,      # 1/km in z-domain form after your nondimensionalization (or mapped consistently)
+    Omega_B: float = 0.0,      # rad/s (only used to form detunings)
+    delta_Omega: np.ndarray | None = None,  # (4,) = Ω_B - (ω_Aj - ω_Bj)  [rad/s] or mapped equivalent
+    q0: np.ndarray | None = None,           # (4,) complex acoustic envelopes at starting point (solver handles location)
+
+    # ---- Solver control ----
+    solver_settings: SolverSettings | None = None,
+    forward_method: str | None = None,      # convenience override: "full" or "expQ"
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
     """
-    Run a single coupled FWM+SBS simulation using complex boundary fields.
-
-    Parameters
-    ----------
-    cfg : SimulationConfig
-        Numerical config (z_max [km], dz [km], save_every, etc.)
-    gamma, alpha, beta : fiber parameters
-        gamma [1/(W·km)], alpha [1/km], beta_j [1/km], shape (4,)
-    omega : np.ndarray
-        Forward angular frequencies omega_j [rad/s], shape (4,)
-
-    A0 : np.ndarray
-        Forward fields at z=0, complex, shape (4,)
-    B_L : np.ndarray
-        Backward fields at z=L, complex, shape (4,)
-    Q0 : np.ndarray | None
-        Acoustic envelopes at z=0, complex, shape (4,). If None, zeros.
-
-    kappa1, kappa2 : float
-        SBS couplings (same for all 4 channels)
-    OmegaB : float
-        Brillouin shift [rad/s]
-    GammaB : float
-        Acoustic damping rate [1/s]
-    vA_km_s : float
-        Acoustic velocity [km/s]
-    omega_B : np.ndarray | None
-        Backward angular frequencies [rad/s], shape (4,).
-        If None: omega_B = omega - OmegaB (so DeltaOmega = 0).
-
-    solver_settings : SolverSettings | None
-        Fixed-point iteration configuration (max_iter, tol_rel, relax, etc.)
+    Run one coupled FWM+SBS simulation.
 
     Returns
     -------
-    z : np.ndarray, shape (N,)
-    A : np.ndarray, shape (N,4)
-    B : np.ndarray, shape (N,4)
-    Q : np.ndarray, shape (N,4)
-    info : dict
-        convergence information and useful diagnostics
+    z : (N,) float
+    A : (N,4) complex    forward optical waves
+    B : (N,4) complex    backward/Stokes waves
+    Q : (N,4) complex    acoustic waves
+    info : dict          diagnostics (iterations, residuals, etc.)
     """
+
     validate_config(cfg)
 
-    beta = np.asarray(beta, dtype=float)
-    omega = np.asarray(omega, dtype=float)
+    beta = _as_1d_float(beta, 4, "beta")
+    omega = _as_1d_float(omega, 4, "omega")
+    p_in_forward = _as_1d_float(p_in_forward, 4, "p_in_forward")
 
-    if beta.shape != (4,):
-        raise ValueError(f"beta must have shape (4,), got {beta.shape}")
-    if omega.shape != (4,):
-        raise ValueError(f"omega must have shape (4,), got {omega.shape}")
+    if p_in_backward is None:
+        p_in_backward = np.zeros(4, dtype=float)
+    else:
+        p_in_backward = _as_1d_float(p_in_backward, 4, "p_in_backward")
 
-    # --- Build fiber and wave params (reuse existing infrastructure) ---
-    fiber = make_fiber_params(gamma=float(gamma), alpha=float(alpha), beta=beta)
-    waves = make_wave_params(omega=omega, P_in=np.abs(np.asarray(A0)) ** 2)
+    A0 = _fields_from_power_phase(p_in_forward, phase_in_forward, "forward")
+    B_L = _fields_from_power_phase(p_in_backward, phase_in_backward, "backward")
 
-    # --- Build SBS params (simplified: scalar kappa1, kappa2) ---
-    sbs: SBSParams = make_sbs_params(
+    if q0 is None:
+        q0 = np.zeros(4, dtype=np.complex128)
+    else:
+        q0 = _as_1d_complex(q0, 4, "q0")
+
+    if delta_Omega is None:
+        delta_Omega = np.zeros(4, dtype=float)
+    else:
+        # Required only for modelling detuning
+        delta_Omega = _as_1d_float(delta_Omega, 4, "delta_Omega")
+
+    # ---- Build parameter objects (duck-typed by the model/solver) ----
+    fiber = make_fiber_params_sbs(
+        gamma=float(gamma),
+        alpha=float(alpha),
+        beta=beta,
+    )
+
+    waves = make_wave_params_sbs(
+        omega=omega,
+        P_in_forward=p_in_forward,
+        P_in_backward=p_in_backward,
+    )
+
+    sbs = make_sbs_params(
         kappa1=float(kappa1),
         kappa2=float(kappa2),
-        OmegaB=float(OmegaB),
-        GammaB=float(GammaB),
-        vA_km_s=float(vA_km_s),
-        omega_A=omega,
-        omega_B=omega_B,
+        v_a=float(v_a),
+        Gamma_B=float(Gamma_B),
+        Omega_B=float(Omega_B),
+        delta_Omega=delta_Omega,
     )
 
-    # --- Boundary conditions ---
-    bc: SBSBoundaryConditions = make_sbs_boundary_conditions(
-        A0=np.asarray(A0, dtype=np.complex128),
-        B_L=np.asarray(B_L, dtype=np.complex128),
-        Q0=None if Q0 is None else np.asarray(Q0, dtype=np.complex128),
+    bc = make_boundary_conditions_sbs(
+        A0=A0,
+        B_L=B_L,
     )
 
-    # --- Bundle full model params ---
-    params: FWM_SBS_ModelParams = make_fwm_sbs_model_params(
+    ic = make_initial_conditions_sbs(
+        Q0=q0,
+    )
+
+    params = make_fwm_sbs_params(
         fiber=fiber,
         waves=waves,
         sbs=sbs,
         bc=bc,
+        ic=ic,
     )
 
-    # --- Solve ---
-    z, A, B, Q, info = solve_fwm_sbs(
-        cfg=cfg,
-        params=params,
-        settings=solver_settings,
-    )
+    # ---- Solver settings: default to the fast-Q method unless user explicitly forces otherwise ----
+    if solver_settings is None:
+        if forward_method is None:
+            forward_method = "expQ"  # recommended default for stiff ΓB
+        solver_settings = SolverSettings(forward_method=forward_method)
+    else:
+        # Allow a convenience override while keeping the rest of the settings intact
+        if forward_method is not None:
+            solver_settings = SolverSettings(**{**asdict(solver_settings), "forward_method": forward_method})
+
+    z, A, B, Q, info = solve_fwm_sbs(cfg=cfg, params=params, settings=solver_settings)
+
+    # Add some lightweight provenance to info
+    info = dict(info) if isinstance(info, dict) else {"solver_info": info}
+    info["cfg"] = _maybe_metadata(cfg)
+    info["solver_settings"] = _maybe_metadata(solver_settings)
 
     return z, A, B, Q, info
 
 
-def run_single_simulation_sbs(
-    cfg: SimulationConfig,
-    *,
-    gamma: float,
-    alpha: float,
-    beta: np.ndarray,
-    omega: np.ndarray,
-    # Boundary powers/phases
-    P_A0: np.ndarray,                      # W, shape (4,)
-    phase_A0: Optional[np.ndarray] = None, # rad, shape (4,)
-    P_B_L: Optional[np.ndarray] = None,    # W, shape (4,), default zeros
-    phase_B_L: Optional[np.ndarray] = None,# rad, shape (4,)
-    Q0: Optional[np.ndarray] = None,       # complex, shape (4,) or None->zeros
-    # SBS parameters
-    kappa1: float = 0.0,
-    kappa2: float = 0.0,
-    OmegaB: float = 0.0,                   # rad/s
-    GammaB: float = 0.0,                   # 1/s
-    vA_km_s: float = 0.0,                  # km/s
-    omega_B: Optional[np.ndarray] = None,
-    # Solver settings
-    solver_settings: Optional[SolverSettings] = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
-    """
-    Same as run_single_simulation_sbs_fields, but takes powers and phases for A0 and B_L.
-
-    Note:
-    - If P_B_L is None, backward injection is set to zero at z=L.
-    - If phase_* is None, phases are assumed zero.
-    - If omega_B is None, omega_B = omega - OmegaB.
-    """
-    validate_config(cfg)
-
-    omega = np.asarray(omega, dtype=float)
-    if omega.shape != (4,):
-        raise ValueError(f"omega must have shape (4,), got {omega.shape}")
-
-    # --- Boundary conditions from powers/phases ---
-    bc = make_sbs_boundary_conditions_from_powers(
-        P_A0=np.asarray(P_A0, dtype=float),
-        phase_A0=None if phase_A0 is None else np.asarray(phase_A0, dtype=float),
-        P_B_L=None if P_B_L is None else np.asarray(P_B_L, dtype=float),
-        phase_B_L=None if phase_B_L is None else np.asarray(phase_B_L, dtype=float),
-        Q0=None if Q0 is None else np.asarray(Q0, dtype=np.complex128),
-    )
-
-    return run_single_simulation_sbs_fields(
-        cfg,
-        gamma=gamma,
-        alpha=alpha,
-        beta=beta,
-        omega=omega,
-        A0=bc.A0,
-        B_L=bc.B_L,
-        Q0=bc.Q0,
-        kappa1=kappa1,
-        kappa2=kappa2,
-        OmegaB=OmegaB,
-        GammaB=GammaB,
-        vA_km_s=vA_km_s,
-        omega_B=omega_B,
-        solver_settings=solver_settings,
-    )
-
-
 # ---------------------------------------------------------------------
-# Example SBS simulations (optional but useful)
+# Minimal example (optional): kept small on purpose
 # ---------------------------------------------------------------------
 
-def example_sbs_only_backward_stokes_seed() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
+def example_seeded_signal_idler_sbs() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
     """
-    Example:
-    Single strong forward pump (A1), tiny backward Stokes seed (B1 at z=L),
-    other waves off. This is a sanity check that SBS coupling behaves and converges.
+    A small default example:
+    - moderately strong pumps
+    - seeded signal + idler
+    - default fast-Q exponential update
 
-    IMPORTANT:
-    - Values below are illustrative defaults to verify code plumbing, not a calibrated fiber.
+    You can call this from a SBS-specific main.py.
     """
-    cfg = custom_simulation_config(z_max=0.5, dz=1e-3, save_every=5, verbose=True)
 
-    # Kerr parameters
-    gamma = 10.0     # 1/(W·km)
+    cfg = SimulationConfig(
+        z_max=0.2,     # km
+        dz=2e-4,       # km (200 m step) -> adjust as you like
+        integrator="rk4",
+        save_every=10,
+        check_nan=True,
+        verbose=False,
+    )
+
+    gamma = 10.0
     alpha = 0.0
-    beta = 5.8e9 * np.ones(4)  # 1/km (placeholder-ish constant beta for toy example)
 
-    # Optical frequencies (just set all equal for toy example)
-    omega0 = 2.0 * pi * (constants.c / 1.55e-6)
-    omega = omega0 * np.ones(4)
+    beta0 = 5.8e9  # 1/km (dummy baseline)
+    beta = beta0 * np.ones(4, dtype=float)
 
-    # Forward input: pump only
-    P_A0 = np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+    omega0 = 2.0 * np.pi * 193.5e12  # ~1550 nm carrier (rough)
+    omega = omega0 * np.ones(4, dtype=float)
 
-    # Backward seed at z=L: tiny Stokes
-    P_B_L = np.array([1e-9, 0.0, 0.0, 0.0], dtype=float)
+    p_in_fwd = np.array([1.0, 1.0, 1e-3, 1e-3], dtype=float)  # W
+    p_in_bwd = np.zeros(4, dtype=float)  # no injected Stokes at z=L
 
-    # SBS parameters (illustrative)
-    OmegaB = 2.0 * pi * 10.8e9     # rad/s
-    GammaB = 2.0 * pi * 30e6       # 1/s (order of magnitude)
-    vA_km_s = 5.96e3 * 1e-3        # 5960 m/s -> 5.96 km/s
-
+    # SBS knobs (placeholders in the "engineering sense": choose your calibrated values)
     kappa1 = 1e-3
     kappa2 = 1e-3
+    v_a = 1.0
+    Gamma_B = 5.0
+    Omega_B = 0.0
+    delta_Omega = np.zeros(4, dtype=float)
 
-    solver_settings = SolverSettings(max_iter=50, tol_rel=1e-8, relax=0.5, init_B="zeros")
-
-    return run_single_simulation_sbs(
+    return run_single_simulation_fwm_sbs(
         cfg,
         gamma=gamma,
         alpha=alpha,
         beta=beta,
         omega=omega,
-        P_A0=P_A0,
-        P_B_L=P_B_L,
+        p_in_forward=p_in_fwd,
+        p_in_backward=p_in_bwd,
         kappa1=kappa1,
         kappa2=kappa2,
-        OmegaB=OmegaB,
-        GammaB=GammaB,
-        vA_km_s=vA_km_s,
-        solver_settings=solver_settings,
+        v_a=v_a,
+        Gamma_B=Gamma_B,
+        Omega_B=Omega_B,
+        delta_Omega=delta_Omega,
+        solver_settings=SolverSettings(forward_method="expQ"),
     )
