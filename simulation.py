@@ -148,22 +148,23 @@ def custom_seeded_signal() -> tuple[np.ndarray, np.ndarray]:
     custom signal
     """
 
-    cfg = custom_simulation_config(z_max=2.0, dz=1e-4)
+    cfg = custom_simulation_config(z_max=0.5, dz=1e-4)
 
     gamma = 10.0 # 1/(W * km)
     alpha = 0.0
 
-    P1 = 1 # W
-    ideal_mismatch = -2 * gamma * (P1 * 2)
+    P1 = 1e-1  # W
+    ideal_mismatch = -0 * gamma * (P1 * 2)
     # ideal_mismatch = 0
-    betas = 5.8e9 * np.array([1.0, 1.0, 1.0 , 1.0]) + np.array([0.0, 0.0, ideal_mismatch, ideal_mismatch])  # rad/km
+    betas = 5.8e9 * np.array([1.0, 1.0, 1.0 , 1.0]) + np.array([0.0, 0.0, 0.0, ideal_mismatch])  # rad/km
     omega =  constants.c / 1.55e-6 * np.array([1.0, 1.0, 1.0, 1.0])     # rad/s
+
 
     p_in = np.array([
         P1,      # pump 1
         P1,      # pump 2
-        1e-3,      # signal
-        0.0,       # idler
+        1e-4,      # signal
+        1e-6,       # idler
     ])
 
     phase_in = np.array([

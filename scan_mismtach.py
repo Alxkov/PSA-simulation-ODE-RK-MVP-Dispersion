@@ -50,7 +50,7 @@ def scan_mismatch_seeded_signal(gain_mode: "GainMode" = "end") -> None:
         z: km
     """
     cfg = custom_simulation_config(
-        z_max=0.2,
+        z_max=0.5,
         dz=1e-3
     )
 
@@ -58,7 +58,7 @@ def scan_mismatch_seeded_signal(gain_mode: "GainMode" = "end") -> None:
     gamma = 10.0  # 1/(W*km)
     alpha = 0.0
 
-    P1_total = 1.0  # W, total pump power (split equally)
+    P1_total = 0.1  # W, total pump power (split equally)
     p_in = np.array(
         [
             P1_total,  # pump1
