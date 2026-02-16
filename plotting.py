@@ -384,6 +384,7 @@ def plot_abs_amplitudes(
     *,
     wave_labels: tuple[str, str, str, str] = ("pump 1", "pump 2", "signal", "idler"),
     title: Optional[str] = None,
+    scale: str = "linear",  # "linear" | "log" | "dbW"
     show: bool = True,
     save_path: Optional[str] = None,
     z_unit: str = "m",
@@ -392,6 +393,12 @@ def plot_abs_amplitudes(
     labels = _validate_labels(wave_labels, 4, name="wave_labels")
     abs_A = np.abs(A_arr)
 
+    if scale == "linear":
+        yscale = "linear"
+    elif scale == "log":
+        yscale = "log"
+
+
     _plot_series(
         z_arr,
         abs_A,
@@ -399,7 +406,7 @@ def plot_abs_amplitudes(
         title=title,
         xlabel=f"z [{z_unit}]",
         ylabel="|A(z)|",
-        yscale="linear",
+        yscale=yscale,
         log_base=10,
         show=show,
         save_path=save_path,
