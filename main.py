@@ -5,7 +5,7 @@ import numpy as np
 
 import plotting
 from config import custom_simulation_config
-from dispersion import dispersion_params_from_D_S
+from dispersion import dispersion_params_from_D_S, delta_beta_from_omegas
 from frequency_plan import (
     plan_from_wavelengths,
     infer_symmetry_from_omegas,
@@ -29,7 +29,7 @@ def main() -> None:
     # ----------------------------
     lambda1 = 1545e-9  # pump1
     lambda2 = 1555e-9  # pump2
-    lambda3 = 1560e-9  # signal
+    lambda3 = 1590e-9  # signal
     omega = plan_from_wavelengths(lambda1, lambda2, lambda3, lambda4_m=None)
 
     # (Optional) print the plan for sanity
@@ -103,12 +103,15 @@ def main() -> None:
     Pz = np.abs(A) ** 2
     P_out = Pz[-1]
     gain_signal_db = 10.0 * np.log10(P_out[2] / p_in[2])
+    db = delta_beta_from_omegas(omegas=omega, disp=disp)
 
     print("\n--- Results ---")
     print(f"z_end = {z[-1]:.3f} m")
     print(f"P_in  [W] = {p_in}")
     print(f"P_out [W] = {P_out}")
     print(f"Signal gain = {gain_signal_db:.3f} dB")
+    print(f"db = {db:.3f}")
+    print(f"gamma(P1 + P2) = {gamma_km * (p_in[0] + p_in[1]):.3f} km^-1")
 
     plotting.plot_fwm_sbs_powers_forward(z, A, scale="dbW")
 
