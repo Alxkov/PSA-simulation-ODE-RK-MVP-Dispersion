@@ -5,7 +5,7 @@ import numpy as np
 
 import plotting
 from config import custom_simulation_config
-from dispersion import dispersion_params_from_D_S, delta_beta_from_omegas
+from dispersion import dispersion_params_from_D_S, delta_beta_from_omegas, delta_beta_symmetric
 from frequency_plan import (
     plan_from_wavelengths,
     infer_symmetry_from_omegas,
@@ -27,9 +27,9 @@ def main() -> None:
     # 2) Frequency plan (dual-pump)
     #    Order: [pump1, pump2, signal, idler]
     # ----------------------------
-    lambda1 = 1545e-9  # pump1
-    lambda2 = 1555e-9  # pump2
-    lambda3 = 1590e-9  # signal
+    lambda1 = 1545e-9  # pump1 (m)
+    lambda2 = 1555e-9  # pump2 (m)
+    lambda3 = 1549.9e-9  # signal (m)
     omega = plan_from_wavelengths(lambda1, lambda2, lambda3, lambda4_m=None)
 
     # (Optional) print the plan for sanity
@@ -77,7 +77,7 @@ def main() -> None:
     # ----------------------------
     # 5) Inputs
     # ----------------------------
-    p_in = np.array([0.5, 0.5, 1e-3, 0.0], dtype=float)  # W
+    p_in = np.array([0.3, 0.3, 1e-3, 1e-4], dtype=float)  # W
     phase_in = np.zeros(4, dtype=float)  # rad
 
     # ----------------------------
@@ -110,8 +110,8 @@ def main() -> None:
     print(f"P_in  [W] = {p_in}")
     print(f"P_out [W] = {P_out}")
     print(f"Signal gain = {gain_signal_db:.3f} dB")
-    print(f"db = {db:.3f}")
-    print(f"gamma(P1 + P2) = {gamma_km * (p_in[0] + p_in[1]):.3f} km^-1")
+    print(f"dbeta = {db:.3f} m^-1")
+    print(f"gamma(P1 + P2) = {gamma_m * (p_in[0] + p_in[1]):.3f} m^-1")
 
     plotting.plot_fwm_sbs_powers_forward(z, A, scale="dbW")
 
