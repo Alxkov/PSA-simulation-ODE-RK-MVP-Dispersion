@@ -5,14 +5,18 @@ scan phase mismatch
 
 from __future__ import annotations
 
-import constants
-from config import default_simulation_config, custom_simulation_config
-from simulation import run_single_simulation
-from plotting import plot_signal_and_idler, plot_powers
-
-from typing import Literal
+from typing import Optional, Sequence, Tuple, Literal
 import numpy as np
 import matplotlib.pyplot as plt
+
+import constants
+from config import SimulationConfig
+from dispersion import DispersionParams
+from frequency_plan import plan_from_wavelengths
+from phase_matching import PhaseMatchingConfig
+from simulation import run_single_simulation, custom_simulation_config
+from plotting import plot_powers, plot_signal_and_idler
+
 
 import time
 from tqdm import tqdm  # pip install tqdm
@@ -253,3 +257,174 @@ def scan_mismatch_seeded_signal(gain_mode: "GainMode" = "end") -> None:
             f"Ps_metric={Ps_metric_arr[j]: .6g}  "
             f"Pi_metric={Pi_metric_arr[j]: .6g}"
         )
+
+
+def plot_max_signal_gain_vs_lambda_signal(
+    *,
+    cfg: SimulationConfig,
+    lambda_p1_m: float,
+    lambda_p2_m: float,
+    lambda_signal_m: Sequence[float],
+    gamma: float,
+    alpha: float,
+    p_in: Sequence[float],
+    phase_in: Optional[Sequence[float]] = None,
+    dispersion: Optional[DispersionParams] = None,
+    phase_matching_cfg: Optional[PhaseMatchingConfig] = None,
+    length_unit: str = "m",
+    return_wavelength_unit: str = "nm",
+    gain_unit: str = "dB",              # "dB" or "linear"
+    xscale: str = "linear",             # "linear" or "log"
+    yscale: str = "linear",             # "linear" or "log" (log only makes sense for gain_unit="linear")
+    show_progress: bool = True,         # tqdm progress bar
+    tqdm_desc: str = "Sweeping λ3",     # progress bar label
+    save_path: Optional[str] = None,
+    show: bool = True,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Scan the signal wavelength λ3 and plot the *maximum* signal gain versus λ3.
+
+    Wave order is fixed:
+        [pump1, pump2, signal, idler] -> [1, 2, 3, 4]
+
+    For each λ3 in lambda_signal_m:
+        - build ω = [ω1, ω2, ω3, ω4] from (λ1, λ2, λ3) (idler inferred by ω4 = ω1+ω2-ω3)
+        - run a single simulation
+        - compute instantaneous signal power P3(z) = |A3(z)|^2
+        - compute gain(z) = P3(z) / P3(0) and take max over z
+        - report either:
+            * gain_unit="linear": G_max = max_z gain(z)
+            * gain_unit="dB":     G_max_dB = 10 log10(G_max)
+
+    Log scales:
+        - xscale can be "linear" or "log"
+        - yscale can be "linear" or "log"
+          NOTE: yscale="log" is only supported for gain_unit="linear" (since dB can be <= 0).
+
+    Returns
+    -------
+    x_wavelength : np.ndarray
+        Wavelength array in units specified by return_wavelength_unit.
+    gain_max : np.ndarray
+        Maximum signal gain for each wavelength in chosen gain_unit.
+        If a run fails, the corresponding entry is NaN.
+    """
+    lam1 = float(lambda_p1_m)
+    lam2 = float(lambda_p2_m)
+
+    lam3_arr = np.asarray(list(lambda_signal_m), dtype=float)
+    if lam3_arr.ndim != 1 or lam3_arr.size == 0:
+        raise ValueError("lambda_signal_m must be a non-empty 1D sequence")
+    if not np.all(np.isfinite(lam3_arr)) or np.any(lam3_arr <= 0.0):
+        raise ValueError("lambda_signal_m must contain finite positive wavelengths (m)")
+
+    p0 = np.asarray(list(p_in), dtype=float)
+    if p0.shape != (4,):
+        raise ValueError(f"p_in must have shape (4,), got {p0.shape}")
+    if not np.all(np.isfinite(p0)) or np.any(p0 < 0.0):
+        raise ValueError("p_in must contain finite non-negative powers")
+    if p0[2] <= 0.0:
+        raise ValueError("p_in[2] (signal seed power) must be > 0 to define gain")
+
+    ph0 = None
+    if phase_in is not None:
+        ph0 = np.asarray(list(phase_in), dtype=float)
+        if ph0.shape != (4,):
+            raise ValueError(f"phase_in must have shape (4,), got {ph0.shape}")
+        if not np.all(np.isfinite(ph0)):
+            raise ValueError("phase_in must contain finite values")
+
+    gain_unit_norm = str(gain_unit).strip().lower()
+    if gain_unit_norm not in ("db", "linear"):
+        raise ValueError("gain_unit must be 'dB' or 'linear'")
+
+    xscale_norm = str(xscale).strip().lower()
+    yscale_norm = str(yscale).strip().lower()
+    if xscale_norm not in ("linear", "log"):
+        raise ValueError("xscale must be 'linear' or 'log'")
+    if yscale_norm not in ("linear", "log"):
+        raise ValueError("yscale must be 'linear' or 'log'")
+
+    if yscale_norm == "log" and gain_unit_norm == "db":
+        raise ValueError("yscale='log' is not supported with gain_unit='dB'. Use gain_unit='linear'.")
+
+    gain_max = np.full(lam3_arr.shape, np.nan, dtype=float)
+
+    iterator = range(lam3_arr.size)
+    if show_progress and tqdm is not None:
+        iterator = tqdm(iterator, desc=tqdm_desc, total=lam3_arr.size)
+
+    for i in iterator:
+        lam3 = float(lam3_arr[i])
+        try:
+            omega = plan_from_wavelengths(lam1, lam2, lam3, lambda4_m=None)
+
+            z, A = run_single_simulation(
+                cfg,
+                gamma=gamma,
+                alpha=alpha,
+                omega=omega,
+                p_in=p0,
+                phase_in=ph0,
+                dispersion=dispersion,
+                phase_matching_cfg=phase_matching_cfg,
+                beta_legacy=None,
+                length_unit=length_unit,
+                return_length_unit=length_unit,
+            )
+
+            P3_z = np.abs(A[:, 2]) ** 2
+            if not np.all(np.isfinite(P3_z)):
+                gain_max[i] = np.nan
+                continue
+
+            g_lin = float(np.max(P3_z) / p0[2])
+            if not np.isfinite(g_lin) or g_lin <= 0.0:
+                gain_max[i] = np.nan
+                continue
+
+            if gain_unit_norm == "linear":
+                gain_max[i] = g_lin
+            else:
+                gain_max[i] = 10.0 * np.log10(g_lin)
+
+        except Exception:
+            gain_max[i] = np.nan
+
+    # x-axis units
+    if return_wavelength_unit.strip().lower() == "nm":
+        x = lam3_arr * 1e9
+        x_label = r"Signal wavelength $\lambda_3$ (nm)"
+    elif return_wavelength_unit.strip().lower() == "m":
+        x = lam3_arr
+        x_label = r"Signal wavelength $\lambda_3$ (m)"
+    else:
+        raise ValueError("return_wavelength_unit must be 'm' or 'nm'")
+
+    # y-axis label
+    if gain_unit_norm == "linear":
+        y = gain_max
+        y_label = r"Max signal gain $G_{\max}$ (linear)"
+    else:
+        y = gain_max
+        y_label = r"Max signal gain $G_{\max}$ (dB)"
+
+    plt.figure()
+    plt.plot(x, y, marker="o")
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    plt.title(r"Maximum signal gain vs signal wavelength")
+    plt.grid(True, which="both")
+
+    plt.xscale(xscale_norm)
+    plt.yscale(yscale_norm)
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+    return x, gain_max

@@ -89,6 +89,16 @@ def S_ps_nm2_km_to_SI(S_ps_nm2_km: float) -> float:
     return S * 1e3
 
 
+def dSdlmbd_ps_nm3_km_to_SI(dSdlmbd_ps_nm3_km: float) -> float:
+    """
+    Convert dSdlmbd from ps/(nm^3*km) to SI units s/m^4.
+
+    1 ps/(nm^3·km) = 1e-12 s / (1e-27 m^3 * 1e3 m) = 1e12 s/m^4
+    """
+    dSdlmbd = _to_scalar_float(dSdlmbd_ps_nm3_km, name="dSdlmbd_ps_nm3_km")
+    return dSdlmbd * 1e12
+
+
 def beta2_from_D(lambda_ref_m: float, D_SI: float) -> float:
     """
     Compute beta2 [s^2/m] from dispersion parameter D [s/m^2] at wavelength lambda.
@@ -112,6 +122,21 @@ def beta3_from_D_S(lambda_ref_m: float, D_SI: float, S_SI: float) -> float:
 
     pref = (lam**4) / ((2.0 * np.pi)**2 * constants.c**2)  # lambda^4 / (4pi^2 c^2)
     return pref * (S + 2.0 * D / lam)
+
+
+def beta4_from_D_S(lambda_ref_m: float, D_SI: float, S_SI: float, dSdlmbd_SI: float) -> float:
+    """
+    Compute beta4 [s^3/m] from D [s/m^2], slope S [s/m^3], and ds/dlmbd[s/m^4] at wavelength lambda.
+
+        beta4 = (lambda^4 / (2pi c) ** 3)) * ( 6D + 6 lam S + lam**2 dSdlmbd_SI )
+    """
+    lam = _validate_positive(lambda_ref_m, name="lambda_ref_m")
+    D = _to_scalar_float(D_SI, name="D_SI")
+    S = _to_scalar_float(S_SI, name="S_SI")
+    dSdlam = _to_scalar_float(dSdlmbd_SI, name="dSdlmbd_SI")
+
+    pref = - (lam**4) / (2.0 * np.pi * constants.c)**3
+    return pref * (6 * D + 6 * lam * S + lam**2 * dSdlam)
 
 
 @dataclass(frozen=True)
@@ -351,13 +376,14 @@ def dispersion_params_from_D_S(
     lambda_ref_m: float,
     D: float,
     S: Optional[float] = None,
+    dSdlmbd: Optional[float] = None,
     *,
     D_units: str = "SI",
     S_units: str = "SI",
+    dSdlmbd_units: str = "SI",
     omega_ref: Optional[float] = None,
     beta0: float = 0.0,
     beta1: float = 0.0,
-    beta4: float = 0.0,
     extra: Optional[Dict[int, float]] = None,
 ) -> DispersionParams:
     """
@@ -371,16 +397,20 @@ def dispersion_params_from_D_S(
         Dispersion parameter. Units controlled by D_units.
     S : float or None
         Dispersion slope. If provided, computes beta3. Units controlled by S_units.
+    dsdlmbd : float
+        derivative of dispersion slope on wavelength
     D_units : {"SI", "ps/nm/km"}
         - "SI": D is in s/m^2
         - "ps/nm/km": D is in ps/(nm*km)
     S_units : {"SI", "ps/nm^2/km"}
         - "SI": S is in s/m^3
         - "ps/nm^2/km": S is in ps/(nm^2*km)
+    dSdlmbd_units: {"SI", "ps/nm^3/km"}
     omega_ref : float or None
         If None, computed from lambda_ref as omega_ref = 2pic/lambda_ref.
     beta0, beta1, beta4, extra :
         Pass-through to DispersionParams.
+
 
     Returns
     -------
@@ -409,7 +439,21 @@ def dispersion_params_from_D_S(
             S_SI = S_ps_nm2_km_to_SI(S)
         else:
             raise ValueError(f"Unknown S_units={S_units!r}. Use 'SI' or 'ps/nm^2/km'.")
-        b3 = beta3_from_D_S(lam, D_SI, S_SI)
+    else:
+        S_SI = 0
+    b3 = beta3_from_D_S(lam, D_SI, S_SI)
+
+    if dSdlmbd is not None:
+        if dSdlmbd_units == "SI":
+            dSdlmbd_SI = _to_scalar_float(dSdlmbd, name="dsdlmbd")
+        elif dSdlmbd_units == "ps/nm^3/km":
+            dSdlmbd_SI = dSdlmbd_ps_nm3_km_to_SI(dSdlmbd)
+        else:
+            raise ValueError(f"Unknown dSdlmbd_units={dSdlmbd_units!r}")
+    else:
+        dSdlmbd_SI = 0
+    b4 = beta4_from_D_S(lam, dSdlmbd_SI, S_SI, dSdlmbd_SI)
+
 
     return DispersionParams(
         omega_ref=wref,
@@ -417,6 +461,6 @@ def dispersion_params_from_D_S(
         beta1=beta1,
         beta2=b2,
         beta3=b3,
-        beta4=beta4,
+        beta4=b4,
         extra=extra,
     )
