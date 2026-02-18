@@ -122,8 +122,8 @@ def main_gain_spectrum():
     # ----------------------------
     # 1) Pumps and signal scan (meters)
     # ----------------------------
-    lambda_p1 = 1540e-9  # pump1
-    lambda_p2 = 1550e-9  # pump2
+    lambda_p1 = 1545e-9  # pump1
+    lambda_p2 = 1551e-9  # pump2
 
     # Signal scan: 1520..1580 nm
     lambda_signal = np.linspace(1520e-9, 1580e-9, 61)  # 1 nm step
@@ -148,8 +148,8 @@ def main_gain_spectrum():
     # Example dispersion parameters near 1550 nm (replace with your fiber data if needed)
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
-        D=1,
-        S=0.005,
+        D=1.0,
+        S=0.02,
         dSdlmbd=0,
         D_units="ps/nm/km",
         S_units="ps/nm^2/km",
