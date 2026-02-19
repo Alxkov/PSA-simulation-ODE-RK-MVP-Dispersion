@@ -13,7 +13,7 @@ import constants
 from config import SimulationConfig
 from dispersion import DispersionParams
 from frequency_plan import plan_from_wavelengths
-from phase_matching import PhaseMatchingConfig
+from phase_matching import PhaseMatchingConfig, PhaseMatchingMethod, compute_phase_mismatch
 from simulation import run_single_simulation, custom_simulation_config
 from plotting import plot_powers, plot_signal_and_idler
 
@@ -428,3 +428,356 @@ def plot_max_signal_gain_vs_lambda_signal(
         plt.close()
 
     return x, gain_max
+
+
+def _omega0_from_dispersion(disp: DispersionParams) -> float:
+    # Keep this tolerant to small naming variations.
+    for name in ("omega0", "omega0_rad_s", "w0", "w0_rad_s"):
+        if hasattr(disp, name):
+            return float(getattr(disp, name))
+    raise AttributeError("DispersionParams must define omega0 in rad/s (e.g., field 'omega0').")
+
+
+def _beta_taylor(disp: DispersionParams, omega: float) -> float:
+    """
+    β(ω) ≈ β0 + β1 d + (β2/2) d^2 + (β3/6) d^3 + (β4/24) d^4,  d = ω-ω0
+    Missing coefficients are treated as 0.
+    """
+    w0 = _omega0_from_dispersion(disp)
+    d = float(omega) - w0
+
+    beta0 = float(getattr(disp, "beta0", 0.0))
+    beta1 = float(getattr(disp, "beta1", 0.0))
+    beta2 = float(getattr(disp, "beta2", 0.0))
+    beta3 = float(getattr(disp, "beta3", 0.0))
+    beta4 = float(getattr(disp, "beta4", 0.0))
+
+    d2 = d * d
+    d3 = d2 * d
+    d4 = d2 * d2
+
+    return beta0 + beta1 * d + 0.5 * beta2 * d2 + (1.0 / 6.0) * beta3 * d3 + (1.0 / 24.0) * beta4 * d4
+
+
+def _delta_beta_from_omegas(disp: DispersionParams, omega: np.ndarray) -> float:
+    """
+    dBeta = β(ω1)+β(ω2)-β(ω3)-β(ω4), wave order [1,2,3,4] = [p1,p2,s,i].
+    Units: 1/length-unit used by βk coefficients (typically 1/m or 1/km).
+    """
+    w = np.asarray(omega, dtype=float)
+    if w.shape != (4,):
+        raise ValueError("omega must have shape (4,) = [ω1, ω2, ω3, ω4]")
+    return (_beta_taylor(disp, w[0]) + _beta_taylor(disp, w[1]) - _beta_taylor(disp, w[2]) - _beta_taylor(disp, w[3]))
+
+
+def plot_dbeta_vs_lambda_signal(
+    *,
+    gamma: float,
+    lambda_p1_m: float,
+    lambda_p2_m: float,
+    lambda_signal_m: Sequence[float],
+    p_in: Sequence[float],
+    dispersion: DispersionParams,
+    return_wavelength_unit: str = "nm",   # "nm" | "m"
+    xscale: str = "linear",               # "linear" | "log"
+    yscale: str = "linear",               # "linear" | "log"
+    length_unit: str = "m",               # affects only axis label: "m" | "km"
+    show_progress: bool = True,
+    tqdm_desc: str = r"Scanning dBeta(λ3)",
+    title: Optional[str] = None,
+    save_path: Optional[str] = None,
+    show: bool = True,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Plot dBeta(λ3) and overlay a dashed horizontal line at gamma*(P1+P2).
+
+    Returns
+    -------
+    x_wavelength : np.ndarray
+        λ3 array in chosen return_wavelength_unit.
+    dbeta : np.ndarray
+        dBeta(λ3) in 1/length_unit (consistent with your βk coefficients).
+    """
+    lam1 = float(lambda_p1_m)
+    lam2 = float(lambda_p2_m)
+
+    lam3_arr = np.asarray(list(lambda_signal_m), dtype=float)
+    if lam3_arr.ndim != 1 or lam3_arr.size == 0:
+        raise ValueError("lambda_signal_m must be a non-empty 1D sequence")
+    if not np.all(np.isfinite(lam3_arr)) or np.any(lam3_arr <= 0.0):
+        raise ValueError("lambda_signal_m must contain finite positive wavelengths (m)")
+
+    p0 = np.asarray(list(p_in), dtype=float)
+    if p0.shape != (4,):
+        raise ValueError(f"p_in must have shape (4,), got {p0.shape}")
+    if not np.all(np.isfinite(p0)) or np.any(p0 < 0.0):
+        raise ValueError("p_in must contain finite non-negative powers")
+
+    xscale_norm = str(xscale).strip().lower()
+    yscale_norm = str(yscale).strip().lower()
+    if xscale_norm not in ("linear", "log"):
+        raise ValueError("xscale must be 'linear' or 'log'")
+    if yscale_norm not in ("linear", "log"):
+        raise ValueError("yscale must be 'linear' or 'log'")
+
+    dbeta = np.full(lam3_arr.shape, np.nan, dtype=float)
+
+    iterator = range(lam3_arr.size)
+    if show_progress and tqdm is not None:
+        iterator = tqdm(iterator, desc=tqdm_desc, total=lam3_arr.size)
+
+    for i in iterator:
+        lam3 = float(lam3_arr[i])
+        try:
+            omega = plan_from_wavelengths(lam1, lam2, lam3, lambda4_m=None)
+            dbeta[i] = _delta_beta_from_omegas(dispersion, omega)
+        except Exception:
+            dbeta[i] = np.nan
+
+    # x-axis units
+    unit = return_wavelength_unit.strip().lower()
+    if unit == "nm":
+        x = lam3_arr * 1e9
+        x_label = r"Signal wavelength $\lambda_3$ (nm)"
+    elif unit == "m":
+        x = lam3_arr
+        x_label = r"Signal wavelength $\lambda_3$ (m)"
+    else:
+        raise ValueError("return_wavelength_unit must be 'm' or 'nm'")
+
+    y_unit = "1/km" if str(length_unit).strip().lower() == "km" else "1/m"
+
+    # reference line: gamma*(P1+P2)
+    ref = float(gamma) * float(p0[0] + p0[1])
+
+    # log y-scale safety
+    if yscale_norm == "log":
+        if not np.all(np.isfinite(dbeta)):
+            pass
+        if np.nanmin(dbeta) <= 0.0 or ref <= 0.0:
+            raise ValueError("yscale='log' requires dBeta and gamma*(P1+P2) to be strictly > 0.")
+
+    plt.figure(figsize=(8.0, 5.0))
+    plt.plot(x, dbeta, label=r"$d\beta(\lambda_3)$")
+    plt.axhline(ref, linestyle="--", label=r"$\gamma(P_1+P_2)$")
+
+    plt.xlabel(x_label)
+    plt.ylabel(rf"$d\beta$ [{y_unit}]")
+
+    plt.xscale(xscale_norm)
+    plt.yscale(yscale_norm)
+
+    if title is not None:
+        plt.title(title)
+
+    plt.grid(True, which="both", linestyle="--", alpha=0.5)
+    plt.legend()
+    plt.tight_layout()
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300)
+
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+    return x, dbeta
+
+
+def plot_max_gain_and_dbeta_vs_lambda_signal(
+    *,
+    cfg: SimulationConfig,
+    lambda_p1_m: float,
+    lambda_p2_m: float,
+    lambda_signal_m: Sequence[float],
+    gamma: float,
+    alpha: float,
+    p_in: Sequence[float],
+    phase_in: Optional[Sequence[float]] = None,
+    dispersion: DispersionParams,
+    phase_matching_cfg: Optional[PhaseMatchingConfig] = None,
+    length_unit: str = "m",
+    return_wavelength_unit: str = "nm",
+    gain_unit: str = "dB",              # "dB" or "linear"
+    xscale: str = "linear",             # "linear" or "log"
+    yscale_gain: str = "linear",        # "linear" or "log" (log only for gain_unit="linear")
+    yscale_dbeta: str = "linear",       # "linear" or "log" (log requires strictly >0 values)
+    show_progress: bool = True,
+    tqdm_desc: str = "Sweeping λ3 (gain + dBeta)",
+    save_path: Optional[str] = None,
+    show: bool = True,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Single sweep over λ3 that computes BOTH:
+      1) max signal gain vs λ3 (same metric as plot_max_signal_gain_vs_lambda_signal)
+      2) dBeta(λ3) from phase-matching layer,
+         and overlays a dashed horizontal line at gamma*(P1+P2).
+
+    Returns
+    -------
+    x_wavelength : np.ndarray
+        λ3 array in units specified by return_wavelength_unit.
+    gain_max : np.ndarray
+        Max signal gain for each λ3 in chosen gain_unit.
+    dbeta : np.ndarray
+        Phase mismatch Δβ for each λ3 in units 1/length_unit (consistent with gamma).
+    """
+    # --- Validate inputs ---
+    lam1 = float(lambda_p1_m)
+    lam2 = float(lambda_p2_m)
+
+    lam3_arr = np.asarray(list(lambda_signal_m), dtype=float)
+    if lam3_arr.ndim != 1 or lam3_arr.size == 0:
+        raise ValueError("lambda_signal_m must be a non-empty 1D sequence")
+    if not np.all(np.isfinite(lam3_arr)) or np.any(lam3_arr <= 0.0):
+        raise ValueError("lambda_signal_m must contain finite positive wavelengths (m)")
+
+    p0 = np.asarray(list(p_in), dtype=float)
+    if p0.shape != (4,):
+        raise ValueError(f"p_in must have shape (4,), got {p0.shape}")
+    if not np.all(np.isfinite(p0)) or np.any(p0 < 0.0):
+        raise ValueError("p_in must contain finite non-negative powers")
+    if p0[2] <= 0.0:
+        raise ValueError("p_in[2] (signal seed power) must be > 0 to define gain")
+
+    ph0 = None
+    if phase_in is not None:
+        ph0 = np.asarray(list(phase_in), dtype=float)
+        if ph0.shape != (4,):
+            raise ValueError(f"phase_in must have shape (4,), got {ph0.shape}")
+        if not np.all(np.isfinite(ph0)):
+            raise ValueError("phase_in must contain finite values")
+
+    if dispersion is None:
+        raise ValueError("dispersion must be provided to compute dBeta(λ3)")
+
+    gain_unit_norm = str(gain_unit).strip().lower()
+    if gain_unit_norm not in ("db", "linear"):
+        raise ValueError("gain_unit must be 'dB' or 'linear'")
+
+    xscale_norm = str(xscale).strip().lower()
+    yscale_gain_norm = str(yscale_gain).strip().lower()
+    yscale_dbeta_norm = str(yscale_dbeta).strip().lower()
+
+    if xscale_norm not in ("linear", "log"):
+        raise ValueError("xscale must be 'linear' or 'log'")
+    if yscale_gain_norm not in ("linear", "log"):
+        raise ValueError("yscale_gain must be 'linear' or 'log'")
+    if yscale_dbeta_norm not in ("linear", "log"):
+        raise ValueError("yscale_dbeta must be 'linear' or 'log'")
+
+    if yscale_gain_norm == "log" and gain_unit_norm == "db":
+        raise ValueError("yscale_gain='log' is not supported with gain_unit='dB'. Use gain_unit='linear'.")
+
+    # Default PM config matches your runner default when dispersion is present
+    pm_cfg = phase_matching_cfg
+    if pm_cfg is None:
+        pm_cfg = PhaseMatchingConfig(
+            method=PhaseMatchingMethod.SYMMETRIC_EVEN,
+            max_order=4,
+            even_orders=(2, 4),
+            atol=0.0,
+            rtol=1e-12,
+            provided_delta_beta=None,
+        )
+
+    # --- Allocate outputs ---
+    gain_max = np.full(lam3_arr.shape, np.nan, dtype=float)
+    dbeta = np.full(lam3_arr.shape, np.nan, dtype=float)
+
+    iterator = range(lam3_arr.size)
+    if show_progress:
+        iterator = tqdm(iterator, desc=tqdm_desc, total=lam3_arr.size)
+
+    # --- Single sweep loop ---
+    for i in iterator:
+        lam3 = float(lam3_arr[i])
+        try:
+            omega = plan_from_wavelengths(lam1, lam2, lam3, lambda4_m=None)
+
+            # dBeta in units consistent with `dispersion` and `phase_matching_cfg`
+            pm_res = compute_phase_mismatch(
+                omegas=omega,
+                disp=dispersion,
+                cfg=pm_cfg,
+                symmetric_hint=None,
+            )
+            dbeta[i] = float(pm_res.delta_beta)
+
+            # Run simulation (internally converts units as needed)
+            z, A = run_single_simulation(
+                cfg,
+                gamma=gamma,
+                alpha=alpha,
+                omega=omega,
+                p_in=p0,
+                phase_in=ph0,
+                dispersion=dispersion,
+                phase_matching_cfg=pm_cfg,
+                beta_legacy=None,
+                length_unit=length_unit,
+                return_length_unit=length_unit,
+            )
+
+            P3_z = np.abs(A[:, 2]) ** 2
+            if not np.all(np.isfinite(P3_z)):
+                continue
+
+            g_lin = float(np.max(P3_z) / p0[2])
+            if not np.isfinite(g_lin) or g_lin <= 0.0:
+                continue
+
+            if gain_unit_norm == "linear":
+                gain_max[i] = g_lin
+            else:
+                gain_max[i] = 10.0 * np.log10(g_lin)
+
+        except Exception:
+            # leave NaNs
+            continue
+
+    # --- x-axis units ---
+    if return_wavelength_unit.strip().lower() == "nm":
+        x = lam3_arr * 1e9
+        x_label = r"Signal wavelength $\lambda_3$ (nm)"
+    elif return_wavelength_unit.strip().lower() == "m":
+        x = lam3_arr
+        x_label = r"Signal wavelength $\lambda_3$ (m)"
+    else:
+        raise ValueError("return_wavelength_unit must be 'm' or 'nm'")
+
+    # --- Reference line gamma*(P1+P2) (units: 1/length_unit) ---
+    ref_line = -float(gamma) * float(p0[0] + p0[1])
+
+    # --- Plot (two stacked subplots, shared x) ---
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(9, 7))
+
+    # Top: gain
+    ax1.plot(x, gain_max, marker="o")
+    ax1.set_ylabel("Max signal gain (linear)" if gain_unit_norm == "linear" else "Max signal gain (dB)")
+    ax1.grid(True, which="both", alpha=0.3)
+    ax1.set_yscale(yscale_gain_norm)
+
+    # Bottom: dBeta + reference line
+    ax2.plot(x, dbeta, marker="o", label=r"$\Delta\beta(\lambda_3)$")
+    ax2.axhline(ref_line, ls="--", lw=2, label=r"$\gamma(P_1+P_2)$")
+    ax2.set_xlabel(x_label)
+    ax2.set_ylabel(rf"$\Delta\beta$  [1/{length_unit}]")
+    ax2.grid(True, which="both", alpha=0.3)
+    ax2.set_xscale(xscale_norm)
+    ax2.set_yscale(yscale_dbeta_norm)
+    ax2.legend()
+
+    fig.suptitle("Max signal gain and phase mismatch vs signal wavelength")
+    fig.tight_layout()
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    return x, gain_max, dbeta
