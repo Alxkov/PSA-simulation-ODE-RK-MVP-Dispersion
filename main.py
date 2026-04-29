@@ -30,9 +30,9 @@ def main_single_simulation() -> None:
     # 2) Frequency plan (dual-pump)
     #    Order: [pump1, pump2, signal, idler]
     # ----------------------------
-    lambda1 = 1530e-9  # pump1
-    lambda2 = 1580e-9  # pump2
-    lambda3 = 1557e-9  # signal (m)
+    lambda1 = 1545e-9  # pump1
+    lambda2 = 1555e-9  # pump2
+    lambda3 = 1547e-9  # signal (m)
     omega = plan_from_wavelengths(lambda1, lambda2, lambda3, lambda4_m=None)
 
     # (Optional) print the plan for sanity
@@ -75,7 +75,7 @@ def main_single_simulation() -> None:
     # ----------------------------
     # 5) Inputs
     # ----------------------------
-    p_in = np.array([1.0, 1.0, 1e-3, 1e-3], dtype=float)  # W
+    p_in = np.array([1.0, 1.0, 1e-3, 1e-8], dtype=float)  # W
     phase_in = np.zeros(4, dtype=float)  # rad
 
     # ----------------------------
@@ -114,7 +114,7 @@ def main_single_simulation() -> None:
     print(f"dbeta_sym = {db1:.3f} m^-1")
     print(f"gamma(P1 + P2) = {gamma_m * (p_in[0] + p_in[1]):.3f} m^-1")
 
-    plotting.plot_fwm_sbs_powers_forward(z, A, scale="dbW")
+    plotting.plot_fwm_sbs_powers_forward(z, A, scale="dbW", colors=("red", "orange", "blue", "lightseagreen"))
 
 def main_gain_spectrum():
     # ----------------------------
@@ -146,7 +146,7 @@ def main_gain_spectrum():
     # Example dispersion parameters near 1550 nm (replace with your fiber data if needed)
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
-        D=0.2,
+        D=0.01,
         S=0.02,
         dSdlmbd=0,
         D_units="ps/nm/km",
@@ -178,8 +178,8 @@ def main_gain_spectrum():
     # 5) Input powers (W) and phases (rad)
     # ----------------------------
     # Pumps: 0.5 W each; seeded signal: 1 mW; idler: 0 W
-    p_in = np.array([1.0, 1.0, 1e-3, 1e-3], dtype=float)
-    phase_in = np.zeros(4, dtype=floa1t)
+    p_in = np.array([1.0, 1.0, 1e-3, 1e-8], dtype=float)
+    phase_in = np.zeros(4, dtype=float)
 
     # ----------------------------
     # 6) Run scan and plot
@@ -204,22 +204,24 @@ def main_gain_spectrum():
 
 
 def main_gain_spectrum_dbeta():
-    lambda_p1 = 1506e-9  # pump1
-    lambda_p2 = 1594e-9  # pump2
+    lambda_p1 = 1545e-9  # pump1
+    lambda_p2 = 1555e-9  # pump2
 
 
     lambda_pc = (lambda_p1 + lambda_p2)/2  # auxiliary for sweeping convenience
 
     # Signal scan: 1520..1580 nm
-    lambda_signal = np.linspace(lambda_p1 - (lambda_pc - lambda_p1) * 1.2,
-                                lambda_p2 + (lambda_p2 - lambda_pc) * 1.2, 60)  # 1 nm step
+    lambda_signal = np.linspace(lambda_p1 - (lambda_pc - lambda_p1) * 0.8,
+                                lambda_p2 + (lambda_p2 - lambda_pc) * 0.8, 50)  # 1 nm step
+    lambda_signal = np.linspace(1500e-9,
+                                1600e-9, 50)  # 1 nm step
 
     # ----------------------------
     # 2) Simulation grid (meters)
     # ----------------------------
     # Keep it moderate; scanning 61 wavelengths can be expensive if dz is tiny.
     # 200 m fiber with dz=0.2 m -> 1000 steps per run.
-    cfg = custom_simulation_config(z_max=1000.0, dz=0.2)
+    cfg = custom_simulation_config(z_max=200.0, dz=0.1)
 
     # ----------------------------
     # 3) Dispersion reference at ωc (depends only on pumps)
@@ -234,8 +236,8 @@ def main_gain_spectrum_dbeta():
     # Example dispersion parameters near 1550 nm (replace with your fiber data if needed)
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
-        D=0.000,
-        S=0.019,
+        D=0.1,
+        S=0.02,
         dSdlmbd=0,
         D_units="ps/nm/km",
         S_units="ps/nm^2/km",
@@ -266,7 +268,7 @@ def main_gain_spectrum_dbeta():
     # 5) Input powers (W) and phases (rad)
     # ----------------------------
     # Pumps: 0.5 W each; seeded signal: 1 mW; idler: 0 W
-    p_in = np.array([1.0, 1.0, 1e-10, 1e-10], dtype=float)
+    p_in = np.array([1.0, 1.0, 1e-10, 1e-12], dtype=float)
     phase_in = np.zeros(4, dtype=float)
     x, gmax, db = plot_max_gain_and_dbeta_vs_lambda_signal(
         cfg=cfg,

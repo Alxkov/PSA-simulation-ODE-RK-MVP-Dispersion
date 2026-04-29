@@ -93,6 +93,7 @@ def _plot_series(
     show: bool,
     save_path: Optional[str],
     figsize: Tuple[float, float] = (8.0, 5.0),
+    colors: Optional[Sequence[str]] = None,
 ) -> None:
     z_arr = _validate_z(z)
     y_arr = np.asarray(y, dtype=float)
@@ -104,10 +105,16 @@ def _plot_series(
     if y_arr.shape[1] != len(labels):
         raise ValueError("labels length must match y.shape[1]")
 
+    if colors is not None and len(colors) != len(labels):
+        raise ValueError("colors length must match labels length")
+
     plt.figure(figsize=figsize)
 
     for j, lab in enumerate(labels):
-        plt.plot(z_arr, y_arr[:, j], label=lab)
+        if colors is None:
+            plt.plot(z_arr, y_arr[:, j], label=lab)
+        else:
+            plt.plot(z_arr, y_arr[:, j], label=lab, color=colors[j])
 
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -137,7 +144,6 @@ def _plot_series(
         plt.show()
     else:
         plt.close()
-
 
 # -----------------------------
 # Generic public helpers
@@ -187,6 +193,7 @@ def plot_power_matrix(
     z_unit: str = "m",
     ylabel_linear: str = "P(z) [W]",
     ylabel_db: str = "P(z) [dBW]",
+    colors: Optional[Sequence[str]] = None,
 ) -> None:
     """
     Plot power-like quantity |Y|^2.
@@ -213,6 +220,7 @@ def plot_power_matrix(
             log_base=log_base,
             show=show,
             save_path=save_path,
+            colors=colors,
         )
         return
 
@@ -229,6 +237,7 @@ def plot_power_matrix(
             log_base=log_base,
             show=show,
             save_path=save_path,
+            colors=colors,
         )
         return
 
@@ -245,6 +254,7 @@ def plot_power_matrix(
             log_base=log_base,
             show=show,
             save_path=save_path,
+            colors=colors,
         )
         return
 
@@ -561,6 +571,7 @@ def plot_fwm_sbs_powers_forward(
     show: bool = True,
     save_path: Optional[str] = None,
     z_unit: str = "km",
+    colors: Optional[Sequence[str]] = None,
 ) -> None:
     z_arr, A_arr = _validate_z_Y(z, A, name="A")
     if A_arr.shape[1] != 4:
@@ -578,6 +589,7 @@ def plot_fwm_sbs_powers_forward(
         z_unit=z_unit,
         ylabel_linear="P_A(z) [W]",
         ylabel_db="P_A(z) [dBW]",
+        colors=colors,
     )
 
 
