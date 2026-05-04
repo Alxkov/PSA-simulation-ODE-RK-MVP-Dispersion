@@ -563,7 +563,7 @@ def plot_fwm_sbs_powers_forward(
     z: np.ndarray,
     A: np.ndarray,
     *,
-    labels: tuple[str, str, str, str] = ("A1", "A2", "A3", "A4"),
+    labels: tuple[str, str, str, str] = ("pump 1", "pump 2", "signal", "idler"),
     title: Optional[str] = None,
     scale: str = "linear",   # "linear" | "log" | "dbW"
     log_base: float = 10,
