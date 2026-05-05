@@ -30,9 +30,9 @@ def main_single_simulation() -> None:
     # 2) Frequency plan (dual-pump)
     #    Order: [pump1, pump2, signal, idler]
     # ----------------------------
-    lambda1 = 1540e-9  # pump1
-    lambda2 = 1560e-9  # pump2
-    lambda3 = 1525e-9  # signal (m)
+    lambda1 = 1545e-9  # pump1
+    lambda2 = 1555e-9  # pump2
+    lambda3 = 1540e-9  # signal (m)
     omega = plan_from_wavelengths(lambda1, lambda2, lambda3, lambda4_m=None)
 
     # (Optional) print the plan for sanity
@@ -44,7 +44,7 @@ def main_single_simulation() -> None:
 
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
-        D=0.05,
+        D=0.1,
         S=0.02,
         dSdlmbd=0,
         D_units="ps/nm/km",
@@ -75,7 +75,7 @@ def main_single_simulation() -> None:
     # ----------------------------
     # 5) Inputs
     # ----------------------------
-    p_in = np.array([1.0, 1.0, 1e-5, 1e-10], dtype=float)  # W
+    p_in = np.array([1.0, 1.0, 1e-6, 1e-10], dtype=float)  # W
     phase_in = np.zeros(4, dtype=float)  # rad
 
     # ----------------------------
@@ -234,7 +234,7 @@ def main_gain_spectrum_dbeta():
     # Example dispersion parameters near 1550 nm (replace with your fiber data if needed)
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
-        D=1.0,
+        D=0.1,
         S=0.02,
         dSdlmbd=0,
         D_units="ps/nm/km",
@@ -265,7 +265,7 @@ def main_gain_spectrum_dbeta():
     # ----------------------------
     # 5) Input powers (W) and phases (rad)
 
-    p_in = np.array([1.0, 1.0, 1e-10, 1e-12], dtype=float)
+    p_in = np.array([1.0, 1.0, 1e-10, 0], dtype=float)
     phase_in = np.zeros(4, dtype=float)
     x, gmax, db = plot_max_gain_and_dbeta_vs_lambda_signal(
         cfg=cfg,
@@ -283,4 +283,4 @@ def main_gain_spectrum_dbeta():
 
 
 if __name__ == "__main__":
-    main_gain_spectrum()
+    main_single_simulation()
