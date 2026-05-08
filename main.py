@@ -30,15 +30,15 @@ def main_single_simulation() -> None:
     # 1) Numerical grid (meters)
     # ----------------------------
     # Fiber length 500 m, step 0.1 m
-    cfg = custom_simulation_config(z_max=500.0, dz=0.1)
+    cfg = custom_simulation_config(z_max=200.0, dz=0.1)
 
     # ----------------------------
     # 2) Frequency plan (dual-pump)
     #    Order: [pump1, pump2, signal, idler]
     # ----------------------------
-    lambda1 = 1545e-9  # pump1
-    lambda2 = 1555e-9  # pump2
-    lambda3 = 1520e-9  # signal (m)
+    lambda1 = 1525e-9  # pump1
+    lambda2 = 1575e-9  # pump2
+    lambda3 = 1546e-9  # signal (m)
     omega = plan_from_wavelengths(lambda1, lambda2, lambda3, lambda4_m=None)
 
     # (Optional) print the plan for sanity
@@ -50,7 +50,7 @@ def main_single_simulation() -> None:
 
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
-        D=0.1,
+        D=-0.1,
         S=0.02,
         dSdlmbd=0,
         D_units="ps/nm/km",
@@ -152,7 +152,7 @@ def main_gain_spectrum():
     # Example dispersion parameters near 1550 nm (replace with your fiber data if needed)
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
-        D=0.05,
+        D=-0.05,
         S=0.02,
         dSdlmbd=0,
         D_units="ps/nm/km",
@@ -325,9 +325,9 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     )
     lambda_c = lambda_from_omega(sp.omega_c)
 
-    D_ps_nm_km = 0.05
+    D_ps_nm_km = -0.1
     S_ps_nm2_km = 0.02
-    dSdlmbd_ps_nm3_km = 0.0
+    dSdlmbd_ps_nm3_km = 1e-4
 
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
@@ -361,9 +361,10 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     # ----------------------------
     # 5) Input powers and phases
     # ----------------------------
-    p_in = np.array([0.5, 0.5, 1e-10, 1e-15], dtype=float)  # [W]
+    p_in = np.array([1.0, 1.0, 1e-8, 1e-10], dtype=float)  # [W]
     phase_in = np.zeros(4, dtype=float)  # [rad]
-    nonlinear_mismatch_ref = -gamma_m * float(p_in[0] + p_in[1])  # [1/m]
+    nonlinear_phase_shift_ref = gamma_m * float(p_in[0] + p_in[1])  # [1/m]
+    nonlinear_mismatch_ref = -nonlinear_phase_shift_ref  # [1/m]
 
     signal_gain_db = np.full(lambda_signal.shape, np.nan, dtype=float)
     idler_conversion_db = np.full(lambda_signal.shape, np.nan, dtype=float)
@@ -372,7 +373,8 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     print("=== Starting FWM_CW_Dispersion gain-spectrum sweep ===")
     print(f"Signal wavelength range: {lambda_signal[0] * 1e9:.3f}..{lambda_signal[-1] * 1e9:.3f} nm")
     print(f"Number of points: {lambda_signal.size}")
-    print(f"gamma(P1 + P2): {nonlinear_mismatch_ref:.6e} 1/m")
+    print(f"gamma(P1 + P2): {nonlinear_phase_shift_ref:.6e} 1/m")
+    print(f"-gamma(P1 + P2): {nonlinear_mismatch_ref:.6e} 1/m")
 
     iterator = range(lambda_signal.size)
     if tqdm is not None:
@@ -405,8 +407,10 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
         )
 
         powers = np.abs(A) ** 2
-        signal_metric_power = float(np.max(powers[:, 2]))
-        idler_metric_power = float(np.max(powers[:, 3]))
+        # signal_metric_power = float(np.max(powers[:, 2]))
+        signal_metric_power = float(powers[-1,2])
+        # idler_metric_power = float(np.max(powers[:, 3]))
+        idler_metric_power = float(powers[-1,3])
 
         signal_gain_db[i] = 10.0 * np.log10(signal_metric_power / p_in[2])
         idler_conversion_db[i] = 10.0 * np.log10(idler_metric_power / p_in[2])
@@ -429,13 +433,14 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     x_nm = lambda_signal * 1e9
     pump1_nm = lambda_p1 * 1e9
     pump2_nm = lambda_p2 * 1e9
+    kappa = dbeta + nonlinear_phase_shift_ref  # kappa(lambda_s) = Delta beta(lambda_s) + gamma(P1 + P2) [1/m]
 
     # ------------------------------------------------------------------
     # Plot 1: spectrum + dBeta twin axis + pump wavelength markers
     # ------------------------------------------------------------------
     fig_dbeta, ax_gain = plt.subplots(figsize=(9.0, 5.0))
-    ax_gain.plot(x_nm, signal_gain_db, marker="o", linewidth=1.5, label="signal gain")
     ax_gain.plot(x_nm, idler_conversion_db, marker="s", linewidth=1.5, label="idler conversion")
+    ax_gain.plot(x_nm, signal_gain_db, marker="o", linewidth=1.5, label="signal gain")
     ax_gain.axvline(pump1_nm, linestyle="--", linewidth=1.2, alpha=0.75, label=r"pump 1", color="red")
     ax_gain.axvline(pump2_nm, linestyle="--", linewidth=1.2, alpha=0.75, label=r"pump 2", color="violet")
     ax_gain.set_xlabel(r"signal wavelength $\lambda_s$ [nm]")
@@ -468,8 +473,8 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     # No dBeta curve, no pump-power line, and no pump wavelength markers.
     # ------------------------------------------------------------------
     fig_spectrum, ax_spectrum = plt.subplots(figsize=(9.0, 5.0))
-    ax_spectrum.plot(x_nm, signal_gain_db, marker="o", linewidth=1.5, label="signal gain")
     ax_spectrum.plot(x_nm, idler_conversion_db, marker="s", linewidth=1.5, label="idler conversion")
+    ax_spectrum.plot(x_nm, signal_gain_db, marker="o", linewidth=1.5, label="signal gain")
     ax_spectrum.set_xlabel(r"signal wavelength $\lambda_s$ [nm]")
     ax_spectrum.set_ylabel("gain / conversion [dB]")
     ax_spectrum.grid(True, which="both", alpha=0.35)
@@ -478,13 +483,57 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
         "Dual-pump CW FWM gain spectrum\n"
         f"pumps: {pump1_nm:.3f} nm, {pump2_nm:.3f} nm; "
         f"L={cfg.z_max:.3f} m, dz={cfg.dz:.3f} m; "
+        f"L={cfg.z_max:.3f} m, dz={cfg.dz:.3f} m; "
         f"gamma={gamma_km:.3f} 1/(W km) \n"
         f"D={D_ps_nm_km:.3f} ps/(nm km), S={S_ps_nm2_km:.3f} ps/(nm^2 km), P1={p_in[0]:.3f} W, P2={p_in[1]:.3f} W"
     )
     fig_spectrum.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
 
+    # ------------------------------------------------------------------
+    # Plot 3: spectrum + kappa twin axis + pump wavelength markers.
+    # Here kappa(lambda_s) = Delta beta(lambda_s) + gamma(P1 + P2).
+    # The horizontal zero line marks the effective phase-matching condition
+    # kappa = 0, i.e. Delta beta = -gamma(P1 + P2).
+    # ------------------------------------------------------------------
+    fig_kappa, ax_gain_kappa = plt.subplots(figsize=(9.0, 5.0))
+    ax_gain_kappa.plot(x_nm, idler_conversion_db, marker="s", linewidth=1.5, label="idler conversion")
+    ax_gain_kappa.plot(x_nm, signal_gain_db, marker="o", linewidth=1.5, label="signal gain")
+    ax_gain_kappa.axvline(pump1_nm, linestyle="--", linewidth=1.2, alpha=0.75, label=r"pump 1", color="red")
+    ax_gain_kappa.axvline(pump2_nm, linestyle="--", linewidth=1.2, alpha=0.75, label=r"pump 2", color="violet")
+    ax_gain_kappa.set_xlabel(r"signal wavelength $\lambda_s$ [nm]")
+    ax_gain_kappa.set_ylabel("gain / conversion [dB]")
+    ax_gain_kappa.grid(True, which="both", alpha=0.35)
+    ax_gain_kappa.legend(loc="best")
+
+    ax_kappa = ax_gain_kappa.twinx()
+    ax_kappa.plot(
+        x_nm,
+        kappa,
+        linestyle="--",
+        linewidth=1.4,
+        label=r"$\kappa = \Delta\beta + \gamma(P_{p1}+P_{p2})$",
+    )
+    ax_kappa.axhline(
+        0.0,
+        linestyle=":",
+        linewidth=1.6,
+        label=r"$\kappa = 0$",
+    )
+    ax_kappa.set_ylabel(r"$\kappa = \Delta\beta + \gamma(P_{p1}+P_{p2})$ [1/m]")
+    ax_kappa.legend(loc="best")
+
+    fig_kappa.suptitle(
+        "Dual-pump CW FWM gain spectrum with effective mismatch\n"
+        f"pumps: {pump1_nm:.3f} nm, {pump2_nm:.3f} nm; "
+        f"L={cfg.z_max:.3f} m, dz={cfg.dz:.3f} m; "
+        f"gamma={gamma_km:.3f} 1/(W km) \n"
+        f"D={D_ps_nm_km:.3f} ps/(nm km), S={S_ps_nm2_km:.3f} ps/(nm^2 km), P1={p_in[0]:.3f} W, P2={p_in[1]:.3f} W"
+    )
+    fig_kappa.tight_layout(rect=(0.0, 0.0, 1.0, 1.01))
+
     plt.show()
 
 
 if __name__ == "__main__":
-    main_gain_spectrum_dbeta_twin_axis()
+    main_single_simulation()
+    # main_gain_spectrum_dbeta_twin_axis()
