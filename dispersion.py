@@ -452,7 +452,7 @@ def dispersion_params_from_D_S(
             raise ValueError(f"Unknown dSdlmbd_units={dSdlmbd_units!r}")
     else:
         dSdlmbd_SI = 0
-    b4 = beta4_from_D_S(lam, dSdlmbd_SI, S_SI, dSdlmbd_SI)
+    b4 = beta4_from_D_S(lam, D_SI, S_SI, dSdlmbd_SI)
 
 
     return DispersionParams(

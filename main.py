@@ -52,7 +52,7 @@ def main_single_simulation() -> None:
         lambda_ref_m=lambda_c,
         D=-0.1,
         S=0.02,
-        dSdlmbd=0,
+        dSdlmbd=1e-8,
         D_units="ps/nm/km",
         S_units="ps/nm^2/km",
         dSdlmbd_units="ps/nm^3/km",
