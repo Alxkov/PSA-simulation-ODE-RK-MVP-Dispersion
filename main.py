@@ -30,15 +30,16 @@ def main_single_simulation() -> None:
     # 1) Numerical grid (meters)
     # ----------------------------
     # Fiber length 500 m, step 0.1 m
-    cfg = custom_simulation_config(z_max=200.0, dz=0.1)
+
+    cfg = custom_simulation_config(z_max=400.0, dz=0.2)
 
     # ----------------------------
     # 2) Frequency plan (dual-pump)
     #    Order: [pump1, pump2, signal, idler]
     # ----------------------------
-    lambda1 = 1525e-9  # pump1
-    lambda2 = 1575e-9  # pump2
-    lambda3 = 1546e-9  # signal (m)
+    lambda1 = 1545e-9  # pump1
+    lambda2 = 1555e-9  # pump2
+    lambda3 = 1530e-9  # signal (m)
     omega = plan_from_wavelengths(lambda1, lambda2, lambda3, lambda4_m=None)
 
     # (Optional) print the plan for sanity
@@ -81,7 +82,7 @@ def main_single_simulation() -> None:
     # ----------------------------
     # 5) Inputs
     # ----------------------------
-    p_in = np.array([1.0, 1.0, 1e-5, 1e-10], dtype=float)  # W
+    p_in = np.array([1.0, 1.0, 1e-3, 1e-10], dtype=float)  # W
     phase_in = np.zeros(4, dtype=float)  # rad
 
     # ----------------------------
@@ -183,7 +184,7 @@ def main_gain_spectrum():
     # ----------------------------
     # 5) Input powers (W) and phases (rad)
     # ----------------------------
-    p_in = np.array([1.0, 1.0, 1e-10, 1e-12], dtype=float)
+    p_in = np.array([1.0, 1.0, 1e-6, 1e-10], dtype=float)
     phase_in = np.zeros(4, dtype=float)
 
     # ----------------------------
@@ -304,14 +305,14 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     # ----------------------------
     # 1) Pump wavelengths and signal scan
     # ----------------------------
-    lambda_p1 = 1525e-9  # pump1 [m]
-    lambda_p2 = 1575e-9  # pump2 [m]
+    lambda_p1 = 1548e-9  # pump1 [m]
+    lambda_p2 = 1552e-9  # pump2 [m]
     lambda_signal = np.linspace(1500.0e-9, 1600e-9, 50)  # signal wavelength sweep [m]
 
     # ----------------------------
     # 2) Simulation grid (meters)
     # ----------------------------
-    cfg = custom_simulation_config(z_max=400.0, dz=0.2)
+    cfg = custom_simulation_config(z_max=200.0, dz=0.2)
 
     # ----------------------------
     # 3) Dispersion reference at omega_c
@@ -325,9 +326,9 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     )
     lambda_c = lambda_from_omega(sp.omega_c)
 
-    D_ps_nm_km = -0.1
+    D_ps_nm_km = 0.1
     S_ps_nm2_km = 0.02
-    dSdlmbd_ps_nm3_km = 1e-4
+    dSdlmbd_ps_nm3_km = 1e-5
 
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
@@ -361,7 +362,7 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     # ----------------------------
     # 5) Input powers and phases
     # ----------------------------
-    p_in = np.array([1.0, 1.0, 1e-8, 1e-10], dtype=float)  # [W]
+    p_in = np.array([1.0, 1.0, 1e-12, 1e-15], dtype=float)  # [W]
     phase_in = np.zeros(4, dtype=float)  # [rad]
     nonlinear_phase_shift_ref = gamma_m * float(p_in[0] + p_in[1])  # [1/m]
     nonlinear_mismatch_ref = -nonlinear_phase_shift_ref  # [1/m]
@@ -439,8 +440,8 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     # Plot 1: spectrum + dBeta twin axis + pump wavelength markers
     # ------------------------------------------------------------------
     fig_dbeta, ax_gain = plt.subplots(figsize=(9.0, 5.0))
-    ax_gain.plot(x_nm, idler_conversion_db, marker="s", linewidth=1.5, label="idler conversion")
-    ax_gain.plot(x_nm, signal_gain_db, marker="o", linewidth=1.5, label="signal gain")
+    ax_gain.plot(x_nm, idler_conversion_db, marker="s", linewidth=1.5, label="idler conversion", color="orange")
+    ax_gain.plot(x_nm, signal_gain_db, marker="o", linewidth=1.5, label="signal gain", color="blue")
     ax_gain.axvline(pump1_nm, linestyle="--", linewidth=1.2, alpha=0.75, label=r"pump 1", color="red")
     ax_gain.axvline(pump2_nm, linestyle="--", linewidth=1.2, alpha=0.75, label=r"pump 2", color="violet")
     ax_gain.set_xlabel(r"signal wavelength $\lambda_s$ [nm]")
@@ -473,8 +474,8 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     # No dBeta curve, no pump-power line, and no pump wavelength markers.
     # ------------------------------------------------------------------
     fig_spectrum, ax_spectrum = plt.subplots(figsize=(9.0, 5.0))
-    ax_spectrum.plot(x_nm, idler_conversion_db, marker="s", linewidth=1.5, label="idler conversion")
-    ax_spectrum.plot(x_nm, signal_gain_db, marker="o", linewidth=1.5, label="signal gain")
+    ax_spectrum.plot(x_nm, idler_conversion_db, marker="s", linewidth=1.5, label="idler conversion", color="orange")
+    ax_spectrum.plot(x_nm, signal_gain_db, marker="o", linewidth=1.5, label="signal gain", color="blue")
     ax_spectrum.set_xlabel(r"signal wavelength $\lambda_s$ [nm]")
     ax_spectrum.set_ylabel("gain / conversion [dB]")
     ax_spectrum.grid(True, which="both", alpha=0.35)
@@ -496,8 +497,9 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     # kappa = 0, i.e. Delta beta = -gamma(P1 + P2).
     # ------------------------------------------------------------------
     fig_kappa, ax_gain_kappa = plt.subplots(figsize=(9.0, 5.0))
-    ax_gain_kappa.plot(x_nm, idler_conversion_db, marker="s", linewidth=1.5, label="idler conversion")
-    ax_gain_kappa.plot(x_nm, signal_gain_db, marker="o", linewidth=1.5, label="signal gain")
+    ax_gain_kappa.plot(x_nm, idler_conversion_db, marker="s", linewidth=1.5, label="idler conversion",
+                       color='orange')
+    ax_gain_kappa.plot(x_nm, signal_gain_db, marker="o", linewidth=1.5, label="signal gain", color='blue')
     ax_gain_kappa.axvline(pump1_nm, linestyle="--", linewidth=1.2, alpha=0.75, label=r"pump 1", color="red")
     ax_gain_kappa.axvline(pump2_nm, linestyle="--", linewidth=1.2, alpha=0.75, label=r"pump 2", color="violet")
     ax_gain_kappa.set_xlabel(r"signal wavelength $\lambda_s$ [nm]")
@@ -511,13 +513,13 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
         kappa,
         linestyle="--",
         linewidth=1.4,
-        label=r"$\kappa = \Delta\beta + \gamma(P_{p1}+P_{p2})$",
+        label=r"$\kappa = \Delta\beta + \gamma(P_{p1}+P_{p2})$"
     )
     ax_kappa.axhline(
         0.0,
         linestyle=":",
         linewidth=1.6,
-        label=r"$\kappa = 0$",
+        label=r"$\kappa = 0$"
     )
     ax_kappa.set_ylabel(r"$\kappa = \Delta\beta + \gamma(P_{p1}+P_{p2})$ [1/m]")
     ax_kappa.legend(loc="best")
@@ -535,5 +537,5 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
 
 
 if __name__ == "__main__":
-    main_single_simulation()
-    # main_gain_spectrum_dbeta_twin_axis()
+    # main_single_simulation()
+    main_gain_spectrum_dbeta_twin_axis()
