@@ -31,15 +31,15 @@ def main_single_simulation() -> None:
     # ----------------------------
     # Fiber length 500 m, step 0.1 m
 
-    cfg = custom_simulation_config(z_max=400.0, dz=0.2)
+    cfg = custom_simulation_config(z_max=200.0, dz=0.2)
 
     # ----------------------------
     # 2) Frequency plan (dual-pump)
     #    Order: [pump1, pump2, signal, idler]
     # ----------------------------
-    lambda1 = 1545e-9  # pump1
-    lambda2 = 1555e-9  # pump2
-    lambda3 = 1530e-9  # signal (m)
+    lambda1 = 1540e-9  # pump1
+    lambda2 = 1560e-9  # pump2
+    lambda3 = 1545e-9  # signal (m)
     omega = plan_from_wavelengths(lambda1, lambda2, lambda3, lambda4_m=None)
 
     # (Optional) print the plan for sanity
@@ -51,9 +51,9 @@ def main_single_simulation() -> None:
 
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
-        D=-0.1,
+        D=0.1,
         S=0.02,
-        dSdlmbd=1e-8,
+        dSdlmbd=1e-4,
         D_units="ps/nm/km",
         S_units="ps/nm^2/km",
         dSdlmbd_units="ps/nm^3/km",
@@ -76,13 +76,13 @@ def main_single_simulation() -> None:
     gamma_km = 11.5  # 1/(W·km)
     gamma_m = gamma_km / 1000.0  # 1/(W·m)
 
-    alpha_db_per_km = 0.01  # dB/km (power loss)
+    alpha_db_per_km = 0.8  # dB/km (power loss)
     alpha_m = (np.log(10.0) / 10.0) * alpha_db_per_km / 1000.0  # 1/m
 
     # ----------------------------
     # 5) Inputs
     # ----------------------------
-    p_in = np.array([1.0, 1.0, 1e-3, 1e-10], dtype=float)  # W
+    p_in = np.array([1.0, 1.0, 1e-6, 1e-10], dtype=float)  # W
     phase_in = np.zeros(4, dtype=float)  # rad
 
     # ----------------------------
@@ -121,7 +121,8 @@ def main_single_simulation() -> None:
     print(f"dbeta_sym = {db1:.3f} m^-1")
     print(f"gamma(P1 + P2) = {gamma_m * (p_in[0] + p_in[1]):.3f} m^-1")
 
-    plotting.plot_fwm_sbs_powers_forward(z, A, scale="dbW", colors=("red", "orange", "blue", "lightseagreen"))
+    plotting.plot_fwm_sbs_powers_forward(z, A, title="Amplitude coefficients evolution along $z$",
+                                         scale="dbW", colors=("red", "orange", "blue", "lightseagreen"))
 
 def main_gain_spectrum():
     lambda_p1 = 1540e-9  # pump1
@@ -305,8 +306,8 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     # ----------------------------
     # 1) Pump wavelengths and signal scan
     # ----------------------------
-    lambda_p1 = 1548e-9  # pump1 [m]
-    lambda_p2 = 1552e-9  # pump2 [m]
+    lambda_p1 = 1525e-9  # pump1 [m]
+    lambda_p2 = 1575e-9  # pump2 [m]
     lambda_signal = np.linspace(1500.0e-9, 1600e-9, 50)  # signal wavelength sweep [m]
 
     # ----------------------------
@@ -326,7 +327,7 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     )
     lambda_c = lambda_from_omega(sp.omega_c)
 
-    D_ps_nm_km = 0.1
+    D_ps_nm_km = 0.01
     S_ps_nm2_km = 0.02
     dSdlmbd_ps_nm3_km = 1e-5
 
@@ -461,11 +462,12 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     ax_dbeta.legend(loc="best")
 
     fig_dbeta.suptitle(
-        "Dual-pump CW FWM gain spectrum\n"
+        "Dual-pump CW FWM gain spectrum RK4 FWCE\n"
         f"pumps: {pump1_nm:.3f} nm, {pump2_nm:.3f} nm; "
         f"L={cfg.z_max:.3f} m, dz={cfg.dz:.3f} m; "
         f"gamma={gamma_km:.3f} 1/(W km) \n"
         f"D={D_ps_nm_km:.3f} ps/(nm km), S={S_ps_nm2_km:.3f} ps/(nm^2 km), P1={p_in[0]:.3f} W, P2={p_in[1]:.3f} W"
+        f", $dS/d\lambda$={dSdlmbd_ps_nm3_km} ps/(nm^3 km)"
     )
     fig_dbeta.tight_layout(rect=(0.0, 0.0, 1.0, 1.01))
 
@@ -481,12 +483,13 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     ax_spectrum.grid(True, which="both", alpha=0.35)
     ax_spectrum.legend(loc="best")
     fig_spectrum.suptitle(
-        "Dual-pump CW FWM gain spectrum\n"
+        "Dual-pump CW FWM gain spectrum RK4 FWCE\n"
         f"pumps: {pump1_nm:.3f} nm, {pump2_nm:.3f} nm; "
         f"L={cfg.z_max:.3f} m, dz={cfg.dz:.3f} m; "
         f"L={cfg.z_max:.3f} m, dz={cfg.dz:.3f} m; "
         f"gamma={gamma_km:.3f} 1/(W km) \n"
         f"D={D_ps_nm_km:.3f} ps/(nm km), S={S_ps_nm2_km:.3f} ps/(nm^2 km), P1={p_in[0]:.3f} W, P2={p_in[1]:.3f} W"
+        f", $dS/d\lambda$={dSdlmbd_ps_nm3_km} ps/(nm^3 km)"
     )
     fig_spectrum.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
 
@@ -525,11 +528,12 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     ax_kappa.legend(loc="best")
 
     fig_kappa.suptitle(
-        "Dual-pump CW FWM gain spectrum with effective mismatch\n"
+        "Dual-pump CW FWM gain spectrum with effective mismatch RK4 FWCE\n"
         f"pumps: {pump1_nm:.3f} nm, {pump2_nm:.3f} nm; "
         f"L={cfg.z_max:.3f} m, dz={cfg.dz:.3f} m; "
         f"gamma={gamma_km:.3f} 1/(W km) \n"
         f"D={D_ps_nm_km:.3f} ps/(nm km), S={S_ps_nm2_km:.3f} ps/(nm^2 km), P1={p_in[0]:.3f} W, P2={p_in[1]:.3f} W"
+        f", $dS/d\lambda$={dSdlmbd_ps_nm3_km} ps/(nm^3 km)"
     )
     fig_kappa.tight_layout(rect=(0.0, 0.0, 1.0, 1.01))
 
