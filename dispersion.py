@@ -1,3 +1,4 @@
+
 """
 dispersion.py
 
@@ -126,9 +127,9 @@ def beta3_from_D_S(lambda_ref_m: float, D_SI: float, S_SI: float) -> float:
 
 def beta4_from_D_S(lambda_ref_m: float, D_SI: float, S_SI: float, dSdlmbd_SI: float) -> float:
     """
-    Compute beta4 [s^3/m] from D [s/m^2], slope S [s/m^3], and ds/dlmbd[s/m^4] at wavelength lambda.
+    Compute beta4 [s^4/m] from D [s/m^2], slope S [s/m^3], and dS/dlambda [s/m^4].
 
-        beta4 = (lambda^4 / (2pi c) ** 3)) * ( 6D + 6 lam S + lam**2 dSdlmbd_SI )
+        beta4 = -lambda^4 / (2pi c)^3 * (6D + 6 lambda S + lambda^2 dS/dlambda)
     """
     lam = _validate_positive(lambda_ref_m, name="lambda_ref_m")
     D = _to_scalar_float(D_SI, name="D_SI")

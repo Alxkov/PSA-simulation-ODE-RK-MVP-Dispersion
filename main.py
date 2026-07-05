@@ -1,3 +1,4 @@
+
 # main.py
 from __future__ import annotations
 
@@ -22,7 +23,9 @@ from phase_matching import PhaseMatchingConfig, PhaseMatchingMethod, compute_pha
 from simulation import run_single_simulation
 from scan_mismtach import (plot_max_signal_gain_vs_lambda_signal,
                            plot_dbeta_vs_lambda_signal,
-                           plot_max_gain_and_dbeta_vs_lambda_signal)
+                           plot_max_gain_and_dbeta_vs_lambda_signal,
+                           plot_pia_psa_signal_gain_vs_lambda_signal,
+                           plot_psa_signal_gain_vs_idler_phase)
 
 
 def main_single_simulation() -> None:
@@ -31,7 +34,7 @@ def main_single_simulation() -> None:
     # ----------------------------
     # Fiber length 500 m, step 0.1 m
 
-    cfg = custom_simulation_config(z_max=200.0, dz=0.2)
+    cfg = custom_simulation_config(z_max=200.0, dz=0.1)
 
     # ----------------------------
     # 2) Frequency plan (dual-pump)
@@ -51,9 +54,9 @@ def main_single_simulation() -> None:
 
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
-        D=0.1,
+        D=-0.1,
         S=0.02,
-        dSdlmbd=1e-4,
+        dSdlmbd=-1e-4,
         D_units="ps/nm/km",
         S_units="ps/nm^2/km",
         dSdlmbd_units="ps/nm^3/km",
@@ -84,6 +87,7 @@ def main_single_simulation() -> None:
     # ----------------------------
     p_in = np.array([1.0, 1.0, 1e-6, 1e-10], dtype=float)  # W
     phase_in = np.zeros(4, dtype=float)  # rad
+    phase_in = np.array([0.0, 0.0, 0.0, 0], dtype=float)
 
     # ----------------------------
     # 6) Run
@@ -179,7 +183,7 @@ def main_gain_spectrum():
     gamma_km = 11.5  # 1/(W·km)
     gamma_m = gamma_km / 1000.0  # 1/(W·m)
 
-    alpha_db_per_km = 0.5  # typical
+    alpha_db_per_km = 0.8  # typical
     alpha_m = (np.log(10.0) / 10.0) * alpha_db_per_km / 1000.0  # 1/m
 
     # ----------------------------
@@ -207,6 +211,224 @@ def main_gain_spectrum():
         save_path=None,
         show=True,
         gain_unit="db"
+    )
+
+
+def main_pia_psa_gain_spectrum_user_phases():
+    """
+    Wavelength sweep similar to main_gain_spectrum(), but with three signal-only curves:
+      - PIA signal gain;
+      - PSA signal gain for a user-defined "maximum gain" phase;
+      - PSA signal gain for a user-defined "minimum gain" phase.
+
+    No idler conversion is plotted.
+    """
+    lambda_p1 = 1525e-9  # pump1
+    lambda_p2 = 1575e-9  # pump2
+
+    lambda_signal = np.linspace(1500e-9, 1600e-9, 50)
+
+    # ----------------------------
+    # 2) Simulation grid (meters)
+    # ----------------------------
+    cfg = custom_simulation_config(z_max=200.0, dz=0.1)
+
+    # ----------------------------
+    # 3) Dispersion reference at omega_c
+    # ----------------------------
+    omega_ref = plan_from_wavelengths(lambda_p1, lambda_p2, float(lambda_signal[0]), lambda4_m=None)
+    sp = infer_symmetry_from_omegas(
+        omega1=omega_ref[0],
+        omega2=omega_ref[1],
+        omega3=omega_ref[2],
+        omega4=omega_ref[3],
+    )
+    lambda_c = lambda_from_omega(sp.omega_c)
+
+    disp = dispersion_params_from_D_S(
+        lambda_ref_m=lambda_c,
+        D=-0.1,
+        S=0.02,
+        dSdlmbd=-1e-4,
+        D_units="ps/nm/km",
+        S_units="ps/nm^2/km",
+        dSdlmbd_units="ps/nm^3/km",
+        omega_ref=sp.omega_c,
+    )
+
+    pm_cfg = PhaseMatchingConfig(
+        method=PhaseMatchingMethod.SYMMETRIC_EVEN,
+        even_orders=(2, 4),
+        max_order=4,
+        atol=0.0,
+        rtol=1e-12,
+        provided_delta_beta=None,
+    )
+
+    # ----------------------------
+    # 4) Fiber nonlinearity and loss (per meter)
+    # ----------------------------
+    gamma_km = 11.5  # 1/(W km)
+    gamma_m = gamma_km / 1000.0  # 1/(W m)
+
+    alpha_db_per_km = 0.8
+    alpha_m = (np.log(10.0) / 10.0) * alpha_db_per_km / 1000.0
+
+    # ----------------------------
+    # 5) Input powers (W)
+    # ----------------------------
+    p_pump1 = 1.0
+    p_pump2 = 1.0
+    p_signal = 1e-6
+
+    # PIA: no coherent idler seed. PSA: coherent idler seed is present.
+    p_in_pia = np.array([p_pump1, p_pump2, p_signal, 0.0], dtype=float)
+    p_in_psa = np.array([p_pump1, p_pump2, p_signal, p_signal], dtype=float)
+
+    # ----------------------------
+    # 6) User-defined phases (rad)
+    # ----------------------------
+    phi_p1 = 0.0
+    phi_p2 = 0.0
+    phi_s = 0.0
+
+    # Edit these two relative phases to choose the PSA curves.
+    # theta = phi_p1 + phi_p2 - phi_s - phi_i.
+    # The function does not search phases; it uses exactly these values.
+
+    phi_i_psa_max = 1.2
+    phi_i_psa_min = 4.8
+
+    phase_in_pia = np.array([phi_p1, phi_p2, phi_s, 0.0], dtype=float)
+    phase_in_psa_max = np.array([phi_p1, phi_p2, phi_s, phi_i_psa_max], dtype=float)
+    phase_in_psa_min = np.array([phi_p1, phi_p2, phi_s, phi_i_psa_min], dtype=float)
+
+    # Use "max" to match main_gain_spectrum() exactly.
+    # Use "end" to compare the phase-sensitive output at z = L.
+    gain_mode = "end"
+
+    plot_pia_psa_signal_gain_vs_lambda_signal(
+        cfg=cfg,
+        lambda_p1_m=lambda_p1,
+        lambda_p2_m=lambda_p2,
+        lambda_signal_m=lambda_signal,
+        gamma=gamma_m,
+        alpha=alpha_m,
+        p_in_pia=p_in_pia,
+        p_in_psa=p_in_psa,
+        phase_in_pia=phase_in_pia,
+        phase_in_psa_max=phase_in_psa_max,
+        phase_in_psa_min=phase_in_psa_min,
+        dispersion=disp,
+        phase_matching_cfg=pm_cfg,
+        length_unit="m",
+        return_wavelength_unit="nm",
+        save_path=None,
+        show=True,
+        gain_unit="dB",
+        gain_mode=gain_mode,
+        psa_max_label=rf"PSA signal gain, $\phi_{{i,\max}}={phi_i_psa_max:.3f}$ rad",
+        psa_min_label=rf"PSA signal gain, $\phi_{{i,\min}}={phi_i_psa_min:.3f}$ rad",
+        title=(
+            "PIA and user-defined PSA signal gain spectrum\n"
+            rf"$\phi_{{i,\max}}={phi_i_psa_max:.3f}$ rad, "
+            rf"$\phi_{{i,\min}}={phi_i_psa_min:.3f}$ rad; metric={gain_mode}"
+            rf"$\gamma = {phi_i_psa_max:.3f} $"
+        ),
+    )
+
+
+def main_psa_signal_gain_vs_idler_phase_fixed_wavelengths():
+    """
+    Sweep the input idler phase for fixed pump, signal, and idler wavelengths.
+
+    The plotted curve is PSA signal gain only. The idler wavelength is fixed and
+    must satisfy omega_p1 + omega_p2 = omega_s + omega_i.
+    """
+    lambda_p1 = 1525e-9  # pump1 [m]
+    lambda_p2 = 1575e-9  # pump2 [m]
+    lambda_signal = 1546e-9  # signal [m]
+
+    # Choose the energy-conserving idler wavelength for this fixed signal.
+    # If you replace this by a user value, it must still satisfy
+    # omega_p1 + omega_p2 = omega_s + omega_i.
+    omega_plan = plan_from_wavelengths(lambda_p1, lambda_p2, lambda_signal, lambda4_m=None)
+    lambda_idler = lambda_from_omega(omega_plan[3])
+
+    print(describe_plan(omega_plan))
+
+    cfg = custom_simulation_config(z_max=200.0, dz=0.1)
+
+    sp = infer_symmetry_from_omegas(
+        omega1=omega_plan[0],
+        omega2=omega_plan[1],
+        omega3=omega_plan[2],
+        omega4=omega_plan[3],
+    )
+    lambda_c = lambda_from_omega(sp.omega_c)
+
+    disp = dispersion_params_from_D_S(
+        lambda_ref_m=lambda_c,
+        D=-0.01,
+        S=0.02,
+        dSdlmbd=-1e-4,
+        D_units="ps/nm/km",
+        S_units="ps/nm^2/km",
+        dSdlmbd_units="ps/nm^3/km",
+        omega_ref=sp.omega_c,
+    )
+
+    pm_cfg = PhaseMatchingConfig(
+        method=PhaseMatchingMethod.SYMMETRIC_EVEN,
+        even_orders=(2, 4),
+        max_order=4,
+        atol=0.0,
+        rtol=1e-12,
+        provided_delta_beta=None,
+    )
+
+    gamma_km = 11.5
+    gamma_m = gamma_km / 1000.0
+
+    alpha_db_per_km = 0.8
+    alpha_m = (np.log(10.0) / 10.0) * alpha_db_per_km / 1000.0
+
+    p_in = np.array(
+        [
+            1.0,    # pump1 [W]
+            1.0,    # pump2 [W]
+            1e-6,   # signal [W]
+            1e-6,   # coherent idler seed [W]
+        ],
+        dtype=float,
+    )
+
+    phi_p1 = 0.0
+    phi_p2 = 0.0
+    phi_s = 0.0
+    phi_i_values = np.linspace(0.0, 2.0 * np.pi, 121)
+
+    plot_psa_signal_gain_vs_idler_phase(
+        cfg=cfg,
+        lambda_p1_m=lambda_p1,
+        lambda_p2_m=lambda_p2,
+        lambda_signal_m=lambda_signal,
+        lambda_idler_m=lambda_idler,
+        idler_phase_rad=phi_i_values,
+        gamma=gamma_m,
+        alpha=alpha_m,
+        p_in=p_in,
+        phi_p1_rad=phi_p1,
+        phi_p2_rad=phi_p2,
+        phi_signal_rad=phi_s,
+        dispersion=disp,
+        phase_matching_cfg=pm_cfg,
+        length_unit="m",
+        gain_unit="dB",
+        gain_mode="end",
+        save_path=None,
+        show=True,
+        show_theta_axis=False,
     )
 
 
@@ -327,9 +549,9 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     )
     lambda_c = lambda_from_omega(sp.omega_c)
 
-    D_ps_nm_km = 0.01
+    D_ps_nm_km = -0.02
     S_ps_nm2_km = 0.02
-    dSdlmbd_ps_nm3_km = 1e-5
+    dSdlmbd_ps_nm3_km = -1e-4
 
     disp = dispersion_params_from_D_S(
         lambda_ref_m=lambda_c,
@@ -354,7 +576,7 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     # ----------------------------
     # 4) Fiber nonlinearity and loss
     # ----------------------------
-    gamma_km = 11.5  # [1/(W km)]
+    gamma_km = 9.1  # [1/(W km)]
     gamma_m = gamma_km / 1000.0  # [1/(W m)]
 
     alpha_db_per_km = 0.8  # [dB/km]
@@ -363,7 +585,7 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
     # ----------------------------
     # 5) Input powers and phases
     # ----------------------------
-    p_in = np.array([1.0, 1.0, 1e-12, 1e-15], dtype=float)  # [W]
+    p_in = np.array([0.5, 0.5, 1e-12, 1e-15], dtype=float)  # [W]
     phase_in = np.zeros(4, dtype=float)  # [rad]
     nonlinear_phase_shift_ref = gamma_m * float(p_in[0] + p_in[1])  # [1/m]
     nonlinear_mismatch_ref = -nonlinear_phase_shift_ref  # [1/m]
@@ -467,7 +689,7 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
         f"L={cfg.z_max:.3f} m, dz={cfg.dz:.3f} m; "
         f"gamma={gamma_km:.3f} 1/(W km) \n"
         f"D={D_ps_nm_km:.3f} ps/(nm km), S={S_ps_nm2_km:.3f} ps/(nm^2 km), P1={p_in[0]:.3f} W, P2={p_in[1]:.3f} W"
-        f", $dS/d\lambda$={dSdlmbd_ps_nm3_km} ps/(nm^3 km)"
+        f", $dS/d\\lambda$={dSdlmbd_ps_nm3_km} ps/(nm^3 km)"
     )
     fig_dbeta.tight_layout(rect=(0.0, 0.0, 1.0, 1.01))
 
@@ -489,7 +711,7 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
         f"L={cfg.z_max:.3f} m, dz={cfg.dz:.3f} m; "
         f"gamma={gamma_km:.3f} 1/(W km) \n"
         f"D={D_ps_nm_km:.3f} ps/(nm km), S={S_ps_nm2_km:.3f} ps/(nm^2 km), P1={p_in[0]:.3f} W, P2={p_in[1]:.3f} W"
-        f", $dS/d\lambda$={dSdlmbd_ps_nm3_km} ps/(nm^3 km)"
+        f", $dS/d\\lambda$={dSdlmbd_ps_nm3_km} ps/(nm^3 km)"
     )
     fig_spectrum.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
 
@@ -533,7 +755,7 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
         f"L={cfg.z_max:.3f} m, dz={cfg.dz:.3f} m; "
         f"gamma={gamma_km:.3f} 1/(W km) \n"
         f"D={D_ps_nm_km:.3f} ps/(nm km), S={S_ps_nm2_km:.3f} ps/(nm^2 km), P1={p_in[0]:.3f} W, P2={p_in[1]:.3f} W"
-        f", $dS/d\lambda$={dSdlmbd_ps_nm3_km} ps/(nm^3 km)"
+        f", $dS/d\\lambda$={dSdlmbd_ps_nm3_km} ps/(nm^3 km)"
     )
     fig_kappa.tight_layout(rect=(0.0, 0.0, 1.0, 1.01))
 
@@ -542,4 +764,6 @@ def main_gain_spectrum_dbeta_twin_axis() -> None:
 
 if __name__ == "__main__":
     # main_single_simulation()
-    main_gain_spectrum_dbeta_twin_axis()
+    main_pia_psa_gain_spectrum_user_phases()
+    # main_psa_signal_gain_vs_idler_phase_fixed_wavelengths()
+    # main_gain_spectrum_dbeta_twin_axis()

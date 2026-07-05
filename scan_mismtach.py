@@ -1,3 +1,4 @@
+
 """
 scan_mismatch.py
 scan phase mismatch
@@ -11,7 +12,7 @@ import matplotlib.pyplot as plt
 
 import constants
 from config import SimulationConfig
-from dispersion import DispersionParams
+from dispersion import DispersionParams, delta_beta_from_omegas
 from frequency_plan import plan_from_wavelengths
 from phase_matching import PhaseMatchingConfig, PhaseMatchingMethod, compute_phase_mismatch
 from simulation import run_single_simulation, custom_simulation_config
@@ -19,7 +20,10 @@ from plotting import plot_powers, plot_signal_and_idler
 
 
 import time
-from tqdm import tqdm  # pip install tqdm
+try:
+    from tqdm import tqdm  # pip install tqdm
+except ModuleNotFoundError:
+    tqdm = None
 
 GainMode = Literal["end", "max"]
 
@@ -114,14 +118,17 @@ def scan_mismatch_seeded_signal(gain_mode: "GainMode" = "end") -> None:
     best_idx_running = 0
     best_gs_running = -np.inf
 
-    bar = tqdm(
-        enumerate(delta_list),
-        total=len(delta_list),
-        desc="Scanning mismatch",
-        unit="pt",
-        dynamic_ncols=True,
-        leave=True,
-    )
+    if tqdm is not None:
+        bar = tqdm(
+            enumerate(delta_list),
+            total=len(delta_list),
+            desc="Scanning mismatch",
+            unit="pt",
+            dynamic_ncols=True,
+            leave=True,
+        )
+    else:
+        bar = enumerate(delta_list)
 
     for k, delta in bar:
         betas = beta0 * np.ones(4, dtype=float) + np.array([0.0, 0.0, 0.0, delta], dtype=float)
@@ -161,13 +168,14 @@ def scan_mismatch_seeded_signal(gain_mode: "GainMode" = "end") -> None:
 
         elapsed = time.perf_counter() - t0
         avg = elapsed / (k + 1)
-        bar.set_postfix(
-            delta=f"{float(delta):.3g}",
-            Gs=f"{float(gs_val):.3g}",
-            Gi=f"{float(gi_val):.3g}",
-            bestGs=f"{best_gs_running:.3g}",
-            avg_s=f"{avg:.3f}",
-        )
+        if tqdm is not None:
+            bar.set_postfix(
+                delta=f"{float(delta):.3g}",
+                Gs=f"{float(gs_val):.3g}",
+                Gi=f"{float(gi_val):.3g}",
+                bestGs=f"{best_gs_running:.3g}",
+                avg_s=f"{avg:.3f}",
+            )
 
     t1 = time.perf_counter()
     elapsed_total = t1 - t0
@@ -430,12 +438,472 @@ def plot_max_signal_gain_vs_lambda_signal(
     return x, gain_max
 
 
+def plot_pia_psa_signal_gain_vs_lambda_signal(
+    *,
+    cfg: SimulationConfig,
+    lambda_p1_m: float,
+    lambda_p2_m: float,
+    lambda_signal_m: Sequence[float],
+    gamma: float,
+    alpha: float,
+    p_in_pia: Sequence[float],
+    p_in_psa: Sequence[float],
+    phase_in_pia: Optional[Sequence[float]] = None,
+    phase_in_psa_max: Optional[Sequence[float]] = None,
+    phase_in_psa_min: Optional[Sequence[float]] = None,
+    dispersion: Optional[DispersionParams] = None,
+    phase_matching_cfg: Optional[PhaseMatchingConfig] = None,
+    length_unit: str = "m",
+    return_wavelength_unit: str = "nm",
+    gain_unit: str = "dB",
+    gain_mode: GainMode = "max",
+    xscale: str = "linear",
+    yscale: str = "linear",
+    show_progress: bool = True,
+    tqdm_desc: str = "Sweeping PIA/PSA λ3",
+    pia_label: str = "PIA signal gain",
+    psa_max_label: str = "PSA signal gain, user max phase",
+    psa_min_label: str = "PSA signal gain, user min phase",
+    show_pump_lines: bool = True,
+    title: Optional[str] = None,
+    save_path: Optional[str] = None,
+    show: bool = True,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Scan signal wavelength and plot only signal-gain curves:
+      1) PIA signal gain, usually with no coherent idler seed;
+      2) PSA signal gain for the user-defined "maximum gain" phase;
+      3) PSA signal gain for the user-defined "minimum gain" phase.
+
+    No idler gain or idler conversion is plotted.
+
+    Wave order is fixed throughout the project:
+        [pump1, pump2, signal, idler].
+
+    The PSA phases are not searched automatically. The function uses exactly
+    phase_in_psa_max and phase_in_psa_min supplied by the user.
+
+    gain_mode:
+        "end" -> use P_signal(z_max) / P_signal(0);
+        "max" -> use max_z P_signal(z) / P_signal(0), matching
+                 plot_max_signal_gain_vs_lambda_signal().
+
+    Returns
+    -------
+    x_wavelength : np.ndarray
+        Signal wavelength array in units specified by return_wavelength_unit.
+    gain_pia : np.ndarray
+        PIA signal gain in the selected gain_unit.
+    gain_psa_max : np.ndarray
+        PSA signal gain for phase_in_psa_max in the selected gain_unit.
+    gain_psa_min : np.ndarray
+        PSA signal gain for phase_in_psa_min in the selected gain_unit.
+    """
+    lam1 = float(lambda_p1_m)
+    lam2 = float(lambda_p2_m)
+
+    lam3_arr = np.asarray(list(lambda_signal_m), dtype=float)
+    if lam3_arr.ndim != 1 or lam3_arr.size == 0:
+        raise ValueError("lambda_signal_m must be a non-empty 1D sequence")
+    if not np.all(np.isfinite(lam3_arr)) or np.any(lam3_arr <= 0.0):
+        raise ValueError("lambda_signal_m must contain finite positive wavelengths (m)")
+
+    p_pia = np.asarray(list(p_in_pia), dtype=float)
+    p_psa = np.asarray(list(p_in_psa), dtype=float)
+    for name, powers in (("p_in_pia", p_pia), ("p_in_psa", p_psa)):
+        if powers.shape != (4,):
+            raise ValueError(f"{name} must have shape (4,), got {powers.shape}")
+        if not np.all(np.isfinite(powers)) or np.any(powers < 0.0):
+            raise ValueError(f"{name} must contain finite non-negative powers")
+        if powers[2] <= 0.0:
+            raise ValueError(f"{name}[2] (signal seed power) must be > 0 to define gain")
+
+    if p_psa[3] <= 0.0:
+        raise ValueError("p_in_psa[3] (idler seed power) must be > 0 for phase-sensitive gain")
+
+    def _checked_phase(name: str, value: Optional[Sequence[float]]) -> Optional[np.ndarray]:
+        if value is None:
+            return None
+        phase = np.asarray(list(value), dtype=float)
+        if phase.shape != (4,):
+            raise ValueError(f"{name} must have shape (4,), got {phase.shape}")
+        if not np.all(np.isfinite(phase)):
+            raise ValueError(f"{name} must contain finite values")
+        return phase
+
+    ph_pia = _checked_phase("phase_in_pia", phase_in_pia)
+    ph_psa_max = _checked_phase("phase_in_psa_max", phase_in_psa_max)
+    ph_psa_min = _checked_phase("phase_in_psa_min", phase_in_psa_min)
+
+    gain_unit_norm = str(gain_unit).strip().lower()
+    if gain_unit_norm not in ("db", "linear"):
+        raise ValueError("gain_unit must be 'dB' or 'linear'")
+
+    gain_mode_norm = str(gain_mode).strip().lower()
+    if gain_mode_norm not in ("end", "max"):
+        raise ValueError("gain_mode must be 'end' or 'max'")
+
+    xscale_norm = str(xscale).strip().lower()
+    yscale_norm = str(yscale).strip().lower()
+    if xscale_norm not in ("linear", "log"):
+        raise ValueError("xscale must be 'linear' or 'log'")
+    if yscale_norm not in ("linear", "log"):
+        raise ValueError("yscale must be 'linear' or 'log'")
+    if yscale_norm == "log" and gain_unit_norm == "db":
+        raise ValueError("yscale='log' is not supported with gain_unit='dB'. Use gain_unit='linear'.")
+
+    gain_pia = np.full(lam3_arr.shape, np.nan, dtype=float)
+    gain_psa_max = np.full(lam3_arr.shape, np.nan, dtype=float)
+    gain_psa_min = np.full(lam3_arr.shape, np.nan, dtype=float)
+
+    def _run_gain(
+        *,
+        omega: np.ndarray,
+        powers: np.ndarray,
+        phases: Optional[np.ndarray],
+    ) -> float:
+        _, A = run_single_simulation(
+            cfg,
+            gamma=gamma,
+            alpha=alpha,
+            omega=omega,
+            p_in=powers,
+            phase_in=phases,
+            dispersion=dispersion,
+            phase_matching_cfg=phase_matching_cfg,
+            beta_legacy=None,
+            length_unit=length_unit,
+            return_length_unit=length_unit,
+        )
+
+        signal_power_z = np.abs(A[:, 2]) ** 2
+        if not np.all(np.isfinite(signal_power_z)):
+            return np.nan
+
+        signal_metric_power = _select_power_metric(signal_power_z, gain_mode_norm)
+        gain_linear = float(signal_metric_power / powers[2])
+        if not np.isfinite(gain_linear) or gain_linear <= 0.0:
+            return np.nan
+        if gain_unit_norm == "linear":
+            return gain_linear
+        return 10.0 * np.log10(gain_linear)
+
+    iterator = range(lam3_arr.size)
+    if show_progress and tqdm is not None:
+        iterator = tqdm(iterator, desc=tqdm_desc, total=lam3_arr.size)
+
+    for i in iterator:
+        lam3 = float(lam3_arr[i])
+        try:
+            omega = plan_from_wavelengths(lam1, lam2, lam3, lambda4_m=None)
+            gain_pia[i] = _run_gain(omega=omega, powers=p_pia, phases=ph_pia)
+            gain_psa_max[i] = _run_gain(omega=omega, powers=p_psa, phases=ph_psa_max)
+            gain_psa_min[i] = _run_gain(omega=omega, powers=p_psa, phases=ph_psa_min)
+        except Exception:
+            continue
+
+        if tqdm is not None and hasattr(iterator, "set_postfix_str"):
+            iterator.set_postfix_str(
+                f"lambda_s={lam3 * 1e9:.3f} nm, "
+                f"PIA={gain_pia[i]:+.2f}, "
+                f"PSA max={gain_psa_max[i]:+.2f}, "
+                f"PSA min={gain_psa_min[i]:+.2f}"
+            )
+
+    unit = return_wavelength_unit.strip().lower()
+    if unit == "nm":
+        x = lam3_arr * 1e9
+        x_label = r"Signal wavelength $\lambda_3$ (nm)"
+    elif unit == "m":
+        x = lam3_arr
+        x_label = r"Signal wavelength $\lambda_3$ (m)"
+    else:
+        raise ValueError("return_wavelength_unit must be 'm' or 'nm'")
+
+    y_label = "Signal gain (linear)" if gain_unit_norm == "linear" else "Signal gain (dB)"
+    metric_label = r"$P_s(L)/P_s(0)$" if gain_mode_norm == "end" else r"$\max_z P_s(z)/P_s(0)$"
+
+    fig, ax = plt.subplots(figsize=(9.0, 5.0))
+    if show_pump_lines:
+        if unit == "nm":
+            pump1_x = lam1 * 1e9
+            pump2_x = lam2 * 1e9
+        else:
+            pump1_x = lam1
+            pump2_x = lam2
+        ax.axvline(
+            pump1_x,
+            linestyle="--",
+            linewidth=1.2,
+            alpha=0.75,
+            label=rf"pump 1, $\lambda_{{p1}}={pump1_x:.3f}$ {unit}",
+            color="red",
+        )
+        ax.axvline(
+            pump2_x,
+            linestyle="--",
+            linewidth=1.2,
+            alpha=0.75,
+            label=rf"pump 2, $\lambda_{{p2}}={pump2_x:.3f}$ {unit}",
+            color="violet",
+        )
+    ax.plot(x, gain_pia, marker="o", linewidth=1.7, label=pia_label, color="black")
+    ax.plot(
+        x,
+        gain_psa_max,
+        marker="s",
+        linewidth=1.6,
+        label=psa_max_label,
+        color="blue",
+    )
+    ax.plot(
+        x,
+        gain_psa_min,
+        marker="^",
+        linewidth=1.6,
+        label=psa_min_label,
+        color="red",
+    )
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_xscale(xscale_norm)
+    ax.set_yscale(yscale_norm)
+    ax.grid(True, which="both", alpha=0.35)
+    ax.legend(loc="best")
+    if title is None:
+        title = f"PIA and user-defined PSA signal gain spectrum, metric: {metric_label}"
+    ax.set_title(title)
+    fig.tight_layout()
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    return x, gain_pia, gain_psa_max, gain_psa_min
+
+
+def plot_psa_signal_gain_vs_idler_phase(
+    *,
+    cfg: SimulationConfig,
+    lambda_p1_m: float,
+    lambda_p2_m: float,
+    lambda_signal_m: float,
+    lambda_idler_m: float,
+    idler_phase_rad: Sequence[float],
+    gamma: float,
+    alpha: float,
+    p_in: Sequence[float],
+    phi_p1_rad: float = 0.0,
+    phi_p2_rad: float = 0.0,
+    phi_signal_rad: float = 0.0,
+    dispersion: Optional[DispersionParams] = None,
+    phase_matching_cfg: Optional[PhaseMatchingConfig] = None,
+    length_unit: str = "m",
+    gain_unit: str = "dB",
+    gain_mode: GainMode = "end",
+    xscale: str = "linear",
+    yscale: str = "linear",
+    show_progress: bool = True,
+    tqdm_desc: str = "Sweeping idler phase",
+    show_theta_axis: bool = True,
+    save_path: Optional[str] = None,
+    show: bool = True,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Sweep the input idler phase for fixed pump, signal, and idler wavelengths.
+
+    Only the PSA signal gain is plotted:
+        G_s = P_signal(metric) / P_signal(0).
+
+    Wave order is fixed throughout the project:
+        [pump1, pump2, signal, idler].
+
+    The four wavelengths must satisfy energy conservation in angular frequency:
+        omega_p1 + omega_p2 = omega_s + omega_i.
+    If they do not, plan_from_wavelengths() raises ValueError.
+
+    gain_mode:
+        "end" -> use P_signal(z_max) / P_signal(0);
+        "max" -> use max_z P_signal(z) / P_signal(0).
+
+    Returns
+    -------
+    phi_i : np.ndarray
+        Swept input idler phase values [rad].
+    theta_wrapped : np.ndarray
+        Wrapped PSA relative phase Theta = phi_p1 + phi_p2 - phi_s - phi_i [rad].
+    signal_gain : np.ndarray
+        Signal gain in the selected gain_unit.
+    """
+    lam1 = float(lambda_p1_m)
+    lam2 = float(lambda_p2_m)
+    lam_s = float(lambda_signal_m)
+    lam_i = float(lambda_idler_m)
+    for name, value in (
+        ("lambda_p1_m", lam1),
+        ("lambda_p2_m", lam2),
+        ("lambda_signal_m", lam_s),
+        ("lambda_idler_m", lam_i),
+    ):
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError(f"{name} must be finite and positive")
+
+    phi_i = np.asarray(list(idler_phase_rad), dtype=float)
+    if phi_i.ndim != 1 or phi_i.size == 0:
+        raise ValueError("idler_phase_rad must be a non-empty 1D sequence")
+    if not np.all(np.isfinite(phi_i)):
+        raise ValueError("idler_phase_rad must contain finite values")
+
+    powers = np.asarray(list(p_in), dtype=float)
+    if powers.shape != (4,):
+        raise ValueError(f"p_in must have shape (4,), got {powers.shape}")
+    if not np.all(np.isfinite(powers)) or np.any(powers < 0.0):
+        raise ValueError("p_in must contain finite non-negative powers")
+    if powers[2] <= 0.0:
+        raise ValueError("p_in[2] (signal seed power) must be > 0 to define gain")
+    if powers[3] <= 0.0:
+        raise ValueError("p_in[3] (idler seed power) must be > 0 for PSA phase sensitivity")
+
+    phi_p1 = float(phi_p1_rad)
+    phi_p2 = float(phi_p2_rad)
+    phi_s = float(phi_signal_rad)
+    if not np.all(np.isfinite([phi_p1, phi_p2, phi_s])):
+        raise ValueError("pump and signal phases must be finite")
+
+    gain_unit_norm = str(gain_unit).strip().lower()
+    if gain_unit_norm not in ("db", "linear"):
+        raise ValueError("gain_unit must be 'dB' or 'linear'")
+
+    gain_mode_norm = str(gain_mode).strip().lower()
+    if gain_mode_norm not in ("end", "max"):
+        raise ValueError("gain_mode must be 'end' or 'max'")
+
+    xscale_norm = str(xscale).strip().lower()
+    yscale_norm = str(yscale).strip().lower()
+    if xscale_norm not in ("linear", "log"):
+        raise ValueError("xscale must be 'linear' or 'log'")
+    if yscale_norm not in ("linear", "log"):
+        raise ValueError("yscale must be 'linear' or 'log'")
+    if yscale_norm == "log" and gain_unit_norm == "db":
+        raise ValueError("yscale='log' is not supported with gain_unit='dB'. Use gain_unit='linear'.")
+
+    omega = plan_from_wavelengths(lam1, lam2, lam_s, lambda4_m=lam_i)
+    theta_wrapped = np.mod(phi_p1 + phi_p2 - phi_s - phi_i, 2.0 * np.pi)
+    signal_gain = np.full(phi_i.shape, np.nan, dtype=float)
+
+    iterator = range(phi_i.size)
+    if show_progress and tqdm is not None:
+        iterator = tqdm(iterator, desc=tqdm_desc, total=phi_i.size)
+
+    for idx in iterator:
+        phase_in = np.array([phi_p1, phi_p2, phi_s, float(phi_i[idx])], dtype=float)
+        try:
+            _, A = run_single_simulation(
+                cfg,
+                gamma=gamma,
+                alpha=alpha,
+                omega=omega,
+                p_in=powers,
+                phase_in=phase_in,
+                dispersion=dispersion,
+                phase_matching_cfg=phase_matching_cfg,
+                beta_legacy=None,
+                length_unit=length_unit,
+                return_length_unit=length_unit,
+            )
+            signal_power_z = np.abs(A[:, 2]) ** 2
+            if not np.all(np.isfinite(signal_power_z)):
+                continue
+
+            signal_metric_power = _select_power_metric(signal_power_z, gain_mode_norm)
+            gain_linear = float(signal_metric_power / powers[2])
+            if not np.isfinite(gain_linear) or gain_linear <= 0.0:
+                continue
+
+            if gain_unit_norm == "linear":
+                signal_gain[idx] = gain_linear
+            else:
+                signal_gain[idx] = 10.0 * np.log10(gain_linear)
+        except Exception:
+            continue
+
+        if tqdm is not None and hasattr(iterator, "set_postfix_str"):
+            iterator.set_postfix_str(
+                f"phi_i={phi_i[idx]:.3f} rad, "
+                f"Theta={theta_wrapped[idx]:.3f} rad, "
+                f"G_s={signal_gain[idx]:+.3f}"
+            )
+
+    fig, ax_gain = plt.subplots(figsize=(9.0, 5.0))
+    ax_gain.plot(
+        phi_i,
+        signal_gain,
+        marker="o",
+        markersize=3.2,
+        linewidth=1.7,
+        color="blue",
+        label=r"PSA signal gain $G_s$",
+    )
+
+    if np.any(np.isfinite(signal_gain)):
+        best_idx = int(np.nanargmax(signal_gain))
+        worst_idx = int(np.nanargmin(signal_gain))
+        ax_gain.scatter(
+            [phi_i[best_idx], phi_i[worst_idx]],
+            [signal_gain[best_idx], signal_gain[worst_idx]],
+            color=["green", "red"],
+            s=48,
+            zorder=5,
+            label="max/min sampled gain",
+        )
+
+    ax_gain.set_xlabel(r"idler phase $\phi_i(0)$ [rad]")
+    ax_gain.set_ylabel("signal gain (linear)" if gain_unit_norm == "linear" else "signal gain [dB]")
+    ax_gain.set_xscale(xscale_norm)
+    ax_gain.set_yscale(yscale_norm)
+    ax_gain.grid(True, which="both", alpha=0.35)
+    ax_gain.legend(loc="best")
+
+    if show_theta_axis:
+        ax_theta = ax_gain.twiny()
+        ax_theta.set_xlim(ax_gain.get_xlim())
+        tick_count = 5
+        tick_positions = np.linspace(float(phi_i.min()), float(phi_i.max()), tick_count)
+        theta_ticks = np.mod(phi_p1 + phi_p2 - phi_s - tick_positions, 2.0 * np.pi)
+        ax_theta.set_xticks(tick_positions)
+        ax_theta.set_xticklabels([f"{value:.2f}" for value in theta_ticks])
+        ax_theta.set_xlabel(r"wrapped PSA phase $\Theta=\phi_{p1}+\phi_{p2}-\phi_s-\phi_i$ [rad]")
+
+    metric_label = r"$P_s(L)/P_s(0)$" if gain_mode_norm == "end" else r"$\max_z P_s(z)/P_s(0)$"
+    fig.suptitle(
+        "PSA signal gain versus idler phase\n"
+        f"pumps: {lam1 * 1e9:.3f} nm, {lam2 * 1e9:.3f} nm; "
+        f"signal: {lam_s * 1e9:.3f} nm; idler: {lam_i * 1e9:.3f} nm; "
+        f"metric={metric_label}"
+    )
+    fig.tight_layout()
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    return phi_i, theta_wrapped, signal_gain
+
+
 def _omega0_from_dispersion(disp: DispersionParams) -> float:
     # Keep this tolerant to small naming variations.
-    for name in ("omega0", "omega0_rad_s", "w0", "w0_rad_s"):
+    for name in ("omega_ref", "omega0", "omega0_rad_s", "w0", "w0_rad_s"):
         if hasattr(disp, name):
             return float(getattr(disp, name))
-    raise AttributeError("DispersionParams must define omega0 in rad/s (e.g., field 'omega0').")
+    raise AttributeError("DispersionParams must define a reference angular frequency in rad/s.")
 
 
 def _beta_taylor(disp: DispersionParams, omega: float) -> float:
@@ -461,13 +929,10 @@ def _beta_taylor(disp: DispersionParams, omega: float) -> float:
 
 def _delta_beta_from_omegas(disp: DispersionParams, omega: np.ndarray) -> float:
     """
-    dBeta = β(ω1)+β(ω2)-β(ω3)-β(ω4), wave order [1,2,3,4] = [p1,p2,s,i].
+    dBeta = β(ω3)+β(ω4)-β(ω1)-β(ω2), wave order [1,2,3,4] = [p1,p2,s,i].
     Units: 1/length-unit used by βk coefficients (typically 1/m or 1/km).
     """
-    w = np.asarray(omega, dtype=float)
-    if w.shape != (4,):
-        raise ValueError("omega must have shape (4,) = [ω1, ω2, ω3, ω4]")
-    return (_beta_taylor(disp, w[0]) + _beta_taylor(disp, w[1]) - _beta_taylor(disp, w[2]) - _beta_taylor(disp, w[3]))
+    return delta_beta_from_omegas(omega, disp, max_order=4)
 
 
 def plot_dbeta_vs_lambda_signal(
